@@ -5627,6 +5627,7 @@ function authShow(html, extraClass){
   let el = authEl();
   if (!el) { el = document.createElement("div"); el.id = "auth"; document.body.appendChild(el); const st = document.createElement("style"); st.textContent = AUTH_CSS; document.head.appendChild(st); }
   el.hidden = false;
+  const w = $(".wrap"); if (w) w.hidden = true;
   el.innerHTML = `<div class="acard${extraClass ? " " + extraClass : ""}"><div class="ahead">${LOGO()}<b>DAFeuille</b></div>${html}</div>`;
   const f = el.querySelector("input"); if (f) setTimeout(() => f.focus(), 50);
 }
@@ -5873,6 +5874,7 @@ async function openHousehold(hid){
     window.__pcQ = "." + hid;
     const db = makeServerDb(hid, r.docs);
     const ael = authEl(); if (ael) ael.hidden = true;
+    const w = $(".wrap"); if (w) w.hidden = false;
     authResolve({db, user:{id:async () => SV.me.id, can:async () => SV.role !== "viewer"}});
   } catch (e) { viewHouseholds(e.message); }
 }
