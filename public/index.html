@@ -4679,6 +4679,7 @@ function applyLayout(){
   pc.forEach(p => { const el = document.querySelector(`[data-panel="${p.id}"]`); if (!el) return; el.dataset.off = p.on ? "" : "1"; if (p.id !== "journal") col.appendChild(el); });
   anchor.after(document.querySelector('[data-panel="today"]'));
   $$("[data-panel]").forEach(el => { if (el.dataset.off === "1") el.hidden = true; });
+  $$('[data-view="budget"] .grid > .col > *').forEach(p => delete p.dataset.corder);
 }
 const panelOn = id => panelCfg().find(p => p.id === id)?.on !== false;
 function setMode(mode){
@@ -6097,6 +6098,35 @@ $("#leaderMode").addEventListener("click", e => {
   renderLeaderboard();
 });
 
+/* ---------- Équilibrage des colonnes desktop (évite l'espace vide) ---------- */
+let balancePending = false;
+function scheduleBalance(){
+  if (balancePending || window.innerWidth < 880) return;
+  balancePending = true;
+  requestAnimationFrame(() => { balancePending = false; balanceColumns(); });
+}
+function balanceColumns(){
+  const view = $(`[data-view="${state.tab}"]`); if (!view || view.hidden) return;
+  view.querySelectorAll(":scope > .grid").forEach(grid => {
+    const cols = Array.from(grid.children).filter(c => c.classList.contains("col"));
+    if (cols.length !== 2) return;
+    if (grid.contains(document.activeElement) && document.activeElement !== document.body) return;
+    const all = cols.flatMap(c => Array.from(c.children));
+    let n = all.filter(p => p.dataset.corder !== undefined).length;
+    all.forEach(p => { if (p.dataset.corder === undefined) p.dataset.corder = n++; });
+    const panels = all.filter(p => !p.hidden).sort((a, b) => +a.dataset.corder - +b.dataset.corder);
+    if (!panels.length) return;
+    const heights = panels.map(p => p.offsetHeight);
+    let hA = 0, hB = 0;
+    panels.forEach((p, i) => {
+      const target = hA <= hB ? cols[0] : cols[1];
+      if (p.parentElement !== target) target.appendChild(p);
+      if (target === cols[0]) hA += heights[i]; else hB += heights[i];
+    });
+  });
+}
+window.addEventListener("resize", scheduleBalance);
+
 /* ---------- Démarrage en mode serveur ---------- */
 if (SRV) {
   const ready = new Promise(res => { authResolve = res; });
@@ -6111,6 +6141,7 @@ if (SRV) {
       renderAcctChip();
     }
     maybeRefreshGroupDlg();
+    scheduleBalance();
   };
   (async () => {
     const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite"), grp = params.get("groupe");
