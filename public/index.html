@@ -5529,15 +5529,26 @@ const AUTH_CSS = `
 .acc-row .tx span{display:block;font-size:.8rem;color:var(--muted)}
 .acc-row select{border:1.5px solid var(--line);border-radius:10px;padding:6px 8px;background:var(--surface)}
 .qr{display:block;margin:10px auto;width:200px;height:200px;border-radius:12px;background:#fff;padding:6px}
-.codes{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:ui-monospace,monospace;font-size:.95rem;background:var(--surface-2);padding:12px;border-radius:12px;text-align:center}`;
+.codes{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:ui-monospace,monospace;font-size:.95rem;background:var(--surface-2);padding:12px;border-radius:12px;text-align:center}
+#auth .acard.gpage{max-width:480px}
+#auth .acard.gpage .gpage-grid{display:grid;gap:0}
+@media (min-width:880px){
+  #auth{padding:40px 32px}
+  #auth .acard.gpage{max-width:1180px;width:100%;padding:36px 44px;border-radius:28px}
+  #auth .acard.gpage h1{font-size:1.8rem}
+  #auth .acard.gpage .gpage-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 40px;align-items:start}
+  #auth .acard.gpage .gpage-grid > .gcol{min-width:0}
+  #auth .acard.gpage .donut svg{width:190px;height:190px}
+  #auth .acard.gpage .items{max-height:none}
+}`;
 
 const authEl = () => $("#auth");
 let authResolve = null;
-function authShow(html){
+function authShow(html, extraClass){
   let el = authEl();
   if (!el) { el = document.createElement("div"); el.id = "auth"; document.body.appendChild(el); const st = document.createElement("style"); st.textContent = AUTH_CSS; document.head.appendChild(st); }
   el.hidden = false;
-  el.innerHTML = `<div class="acard"><div class="ahead">${LOGO()}<b>DAFeuille</b></div>${html}</div>`;
+  el.innerHTML = `<div class="acard${extraClass ? " " + extraClass : ""}"><div class="ahead">${LOGO()}<b>DAFeuille</b></div>${html}</div>`;
   const f = el.querySelector("input"); if (f) setTimeout(() => f.focus(), 50);
 }
 const msgBox = (t, ok) => t ? `<div class="msg ${ok ? "ok" : "ko"}" role="${ok ? "status" : "alert"}">${esc(t)}</div>` : "";
@@ -5653,11 +5664,17 @@ function renderPublicGroup(token, g){
   const s = groupSummaryHtml(g, {editableItemIds, editablePersonIds, canDeleteAny:false, canConvert:false});
   authShow(`<h1>${esc(g.name)}</h1><p class="sub">Ajoutez votre part, sans compte.</p>
     ${g.locked ? `<div class="alert"><b>Groupe verrouillé</b> — plus aucun ajout n'est possible.</div>` : ""}
-    ${s.charts}
-    <h3>Qui doit quoi</h3>${s.settleHtml}
-    ${s.balCards}
-    <h3>Dépenses (${s.count})</h3>${s.itemsHtml}
-    <div id="pubAddBox">${g.locked ? "" : pubAddFormHtml(g)}</div>`);
+    <div class="gpage-grid">
+      <div class="gcol">
+        ${s.charts}
+        <h3>Qui doit quoi</h3>${s.settleHtml}
+        ${s.balCards}
+      </div>
+      <div class="gcol">
+        <h3>Dépenses (${s.count})</h3>${s.itemsHtml}
+        <div id="pubAddBox">${g.locked ? "" : pubAddFormHtml(g)}</div>
+      </div>
+    </div>`, "gpage");
   pubPhoto = null;
   wirePublicGroup(token, g);
 }
