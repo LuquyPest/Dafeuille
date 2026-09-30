@@ -66,6 +66,20 @@ CREATE TABLE IF NOT EXISTS group_links (
 );
 CREATE INDEX IF NOT EXISTS group_links_group_idx ON group_links (household_id, group_id) WHERE revoked_at IS NULL;
 
+-- Jetons de "possession" (hachés, jamais relus) permettant à un ami sans compte
+-- de modifier/supprimer sa propre entrée ou de renommer sa propre personne,
+-- pendant une courte fenêtre après création.
+CREATE TABLE IF NOT EXISTS group_claims (
+  id           text PRIMARY KEY,
+  household_id text NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  group_id     text NOT NULL,
+  subject_type text NOT NULL CHECK (subject_type IN ('item','person')),
+  subject_id   text NOT NULL,
+  token_hash   text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS group_claims_subject_idx ON group_claims (household_id, group_id, subject_type, subject_id);
+
 CREATE TABLE IF NOT EXISTS memberships (
   household_id text NOT NULL REFERENCES households(id) ON DELETE CASCADE,
   user_id      text NOT NULL REFERENCES users(id) ON DELETE CASCADE,

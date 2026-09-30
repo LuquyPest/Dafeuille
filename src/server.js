@@ -496,7 +496,7 @@ const BADGE_CATALOG = {
   premiere_course: 10, course_50: 30, anti_gaspi: 20, garde_manger: 50, bien_range: 20, menage_fait: 20, chef: 20, gourmet: 60,
   planificateur: 20, facture_suivie: 20, projet_lance: 15, multi_projets: 40, equitable: 20, genereux: 15,
   vue_ensemble: 15, sous_controle: 15, bricoleur: 20, grand_routier: 30, garanties_ok: 15,
-  argent_de_poche: 20, cagnotte_active: 15, journal_tenu: 20,
+  argent_de_poche: 20, cagnotte_active: 15, journal_tenu: 20, groupe_cree: 15, groupe_solde: 30,
 };
 
 /* ---------------------------- Données du foyer ---------------------------- */
@@ -617,7 +617,9 @@ app.post("/api/h/:hid/groups/:gid/link/rotate", requireUser, member, h(async (re
 }));
 app.get("/api/h/:hid/groups/:gid/link", requireUser, member, h(async (req, res) => {
   const r = (await q("SELECT token, created_at FROM group_links WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid])).rows[0];
-  res.json(r ? { token: r.token, url: `${CFG.appUrl}/?groupe=${r.token}`, createdAt: r.created_at } : { token: null });
+  if (!r) return res.json({ token: null });
+  const url = `${CFG.appUrl}/?groupe=${r.token}`;
+  res.json({ token: r.token, url, createdAt: r.created_at, qr: await QRCode.toDataURL(url, { margin: 1, width: 240 }) });
 }));
 app.delete("/api/h/:hid/groups/:gid/link", requireUser, member, h(async (req, res) => {
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
@@ -629,13 +631,51 @@ async function groupLink(token) {
   if (!r) throw new HttpError(404, "not_found", "Lien invalide ou révoqué.");
   return r;
 }
+const CLAIM_WINDOW_MS = 30 * 60e3;
+async function mintClaim(gl, type, subjectId) {
+  const token = newToken();
+  await q("INSERT INTO group_claims (id, household_id, group_id, subject_type, subject_id, token_hash) VALUES ($1,$2,$3,$4,$5,$6)",
+    [uuid(), gl.household_id, gl.group_id, type, subjectId, sha(token)]);
+  return token;
+}
+async function checkClaim(gl, type, subjectId, token) {
+  if (!token) throw new HttpError(403, "not_granted", "Modification impossible depuis cet appareil.");
+  const r = (await q("SELECT * FROM group_claims WHERE household_id = $1 AND group_id = $2 AND subject_type = $3 AND subject_id = $4",
+    [gl.household_id, gl.group_id, type, subjectId])).rows[0];
+  if (!r || sha(token) !== r.token_hash) throw new HttpError(403, "not_granted", "Modification impossible depuis cet appareil.");
+  if (Date.now() - new Date(r.created_at).getTime() > CLAIM_WINDOW_MS) throw new HttpError(403, "expired", "Le délai de modification (30 minutes) est dépassé.");
+}
+function withGroupDoc(gl, fn) {
+  return asUser(gl.created_by, async c => {
+    const r = await c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2 FOR UPDATE", [gl.household_id, gl.group_id]);
+    if (!r.rows[0]) throw new HttpError(404, "not_found", "Groupe introuvable.");
+    const g = r.rows[0].data; g.people = g.people || []; g.items = g.items || [];
+    const out = await fn(c, g);
+    await c.query("UPDATE docs SET data = $3, updated_at = now() WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [gl.household_id, gl.group_id, JSON.stringify(g)]);
+    await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify({ t: "doc", hid: gl.household_id, coll: "groupes", id: gl.group_id, owner: "", data: g })]);
+    return out;
+  });
+}
+function checkSplits(splits, amount, peopleIds) {
+  if (!splits) return null;
+  if (typeof splits !== "object" || Array.isArray(splits)) throw bad("bad_data", "Répartition invalide.");
+  const entries = Object.entries(splits);
+  if (!entries.length || entries.length > 50) throw bad("bad_data", "Répartition invalide.");
+  let sum = 0;
+  for (const [pid, amt] of entries) {
+    if (!peopleIds.includes(pid) || !Number.isInteger(amt) || amt <= 0) throw bad("bad_data", "Répartition invalide.");
+    sum += amt;
+  }
+  if (sum !== amount) throw bad("bad_data", "La répartition doit correspondre au montant total.");
+  return splits;
+}
 app.get("/api/public/group/:token", h(async (req, res) => {
   limit("pub-group-ip:" + req.ip, 120, 3600e3);
   const gl = await groupLink(req.params.token);
   const r = (await asUser(gl.created_by, c => c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [gl.household_id, gl.group_id]))).rows[0];
   if (!r) throw new HttpError(404, "not_found", "Groupe introuvable.");
   const g = r.data;
-  res.json({ name: g.name, people: g.people || [], items: g.items || [] });
+  res.json({ name: g.name, people: g.people || [], items: g.items || [], locked: !!g.locked });
 }));
 app.post("/api/public/group/:token/item", h(async (req, res) => {
   limit("pub-group:" + req.params.token, 40, 3600e3);
@@ -646,18 +686,82 @@ app.post("/api/public/group/:token/item", h(async (req, res) => {
   const payerName = String(req.body.payerName || "").trim().slice(0, 30);
   const payerId = String(req.body.payerId || "").trim();
   const parts = Array.isArray(req.body.parts) ? req.body.parts.filter(p => typeof p === "string").slice(0, 50) : null;
+  const cat = req.body.cat ? String(req.body.cat).slice(0, 20) : null;
+  const photo = req.body.photo != null ? String(req.body.photo) : null;
+  if (photo && (!/^data:image\/(png|jpe?g|webp);base64,/.test(photo) || photo.length > 120000)) throw bad("bad_data", "Photo invalide.");
+  const currency = req.body.currency ? String(req.body.currency).slice(0, 6) : null;
+  const rate = currency ? +req.body.rate : null;
+  const origAmount = currency ? +req.body.origAmount : null;
   if (!label || !(amount > 0) || amount > 1000000) throw bad("bad_data", "Dépense invalide.");
   if (!payerId && !payerName) throw bad("bad_data", "Indiquez qui a payé.");
-  await asUser(gl.created_by, async c => {
-    const r = await c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2 FOR UPDATE", [gl.household_id, gl.group_id]);
-    if (!r.rows[0]) throw new HttpError(404, "not_found", "Groupe introuvable.");
-    const g = r.rows[0].data;
-    g.people = g.people || []; g.items = g.items || [];
+  if (currency && (!(rate > 0) || !(origAmount > 0))) throw bad("bad_data", "Taux de change invalide.");
+  let itemId, claimToken, personClaimToken;
+  await withGroupDoc(gl, async (c, g) => {
+    if (g.locked) throw new HttpError(403, "locked", "Ce groupe est verrouillé.");
     let pid = payerId && g.people.some(p => p.id === payerId) ? payerId : null;
-    if (!pid) { pid = uuid().slice(0, 8); g.people.push({ id: pid, name: payerName || "Ami" }); }
-    g.items.push({ id: uuid().slice(0, 8), label, amount, payer: pid, parts: parts && parts.length ? parts : g.people.map(p => p.id), date: new Date().toISOString().slice(0, 10), createdAt: Date.now() });
-    await c.query("UPDATE docs SET data = $3, updated_at = now() WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [gl.household_id, gl.group_id, JSON.stringify(g)]);
-    await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify({ t: "doc", hid: gl.household_id, coll: "groupes", id: gl.group_id, owner: "", data: g })]);
+    let newPerson = false;
+    if (!pid) { pid = uuid().slice(0, 8); g.people.push({ id: pid, name: payerName || "Ami" }); newPerson = true; }
+    const splits = checkSplits(req.body.splits, amount, g.people.map(p => p.id));
+    itemId = uuid().slice(0, 8);
+    g.items.push({ id: itemId, label, amount, cat, photo, currency, rate, origAmount, splits,
+      payer: pid, parts: parts && parts.length ? parts : g.people.map(p => p.id), kind: "expense",
+      date: new Date().toISOString().slice(0, 10), createdAt: Date.now() });
+    claimToken = await mintClaim(gl, "item", itemId);
+    if (newPerson) personClaimToken = await mintClaim(gl, "person", pid);
+  });
+  res.json({ ok: true, itemId, claimToken, personClaimToken: personClaimToken || null });
+}));
+app.patch("/api/public/group/:token/item/:itemId", h(async (req, res) => {
+  limit("pub-group:" + req.params.token, 40, 3600e3);
+  const gl = await groupLink(req.params.token);
+  await checkClaim(gl, "item", req.params.itemId, req.body.claimToken);
+  const label = String(req.body.label || "").trim().slice(0, 80);
+  const amount = +req.body.amount;
+  const cat = req.body.cat ? String(req.body.cat).slice(0, 20) : null;
+  if (!label || !(amount > 0) || amount > 1000000) throw bad("bad_data", "Dépense invalide.");
+  await withGroupDoc(gl, async (c, g) => {
+    if (g.locked) throw new HttpError(403, "locked", "Ce groupe est verrouillé.");
+    const it = g.items.find(x => x.id === req.params.itemId);
+    if (!it) throw new HttpError(404, "not_found", "Introuvable.");
+    const splits = checkSplits(req.body.splits, amount, g.people.map(p => p.id));
+    Object.assign(it, { label, amount, cat, splits: splits || null });
+  });
+  res.json({ ok: true });
+}));
+app.delete("/api/public/group/:token/item/:itemId", h(async (req, res) => {
+  limit("pub-group:" + req.params.token, 40, 3600e3);
+  const gl = await groupLink(req.params.token);
+  await checkClaim(gl, "item", req.params.itemId, req.query.claimToken);
+  await withGroupDoc(gl, async (c, g) => {
+    if (g.locked) throw new HttpError(403, "locked", "Ce groupe est verrouillé.");
+    g.items = g.items.filter(x => x.id !== req.params.itemId);
+  });
+  res.json({ ok: true });
+}));
+app.post("/api/public/group/:token/person", h(async (req, res) => {
+  limit("pub-group:" + req.params.token, 40, 3600e3);
+  const gl = await groupLink(req.params.token);
+  const personId = String(req.body.personId || "");
+  await checkClaim(gl, "person", personId, req.body.claimToken);
+  const name = String(req.body.name || "").trim().slice(0, 30);
+  if (!name) throw bad("bad_data", "Indiquez un nom.");
+  await withGroupDoc(gl, async (c, g) => {
+    const p = g.people.find(x => x.id === personId);
+    if (!p) throw new HttpError(404, "not_found", "Introuvable.");
+    p.name = name;
+  });
+  res.json({ ok: true });
+}));
+app.post("/api/public/group/:token/settle", h(async (req, res) => {
+  limit("pub-group:" + req.params.token, 40, 3600e3);
+  limit("pub-group-ip:" + req.ip, 40, 3600e3);
+  const gl = await groupLink(req.params.token);
+  const from = String(req.body.from || ""), to = String(req.body.to || ""), amount = +req.body.amount;
+  if (!from || !to || from === to || !(amount > 0) || amount > 1000000) throw bad("bad_data", "Règlement invalide.");
+  await withGroupDoc(gl, async (c, g) => {
+    if (g.locked) throw new HttpError(403, "locked", "Ce groupe est verrouillé.");
+    if (!g.people.some(p => p.id === from) || !g.people.some(p => p.id === to)) throw bad("bad_data", "Personne introuvable.");
+    g.items.push({ id: uuid().slice(0, 8), label: "Remboursement", amount, payer: from, parts: [to], kind: "settlement", date: new Date().toISOString().slice(0, 10), createdAt: Date.now() });
   });
   res.json({ ok: true });
 }));
