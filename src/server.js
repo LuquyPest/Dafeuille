@@ -345,14 +345,23 @@ app.get("/api/me", h(async (req, res) => {
   const hs = (await q(`SELECT h.id, h.name, m.role, (SELECT count(*) FROM memberships x WHERE x.household_id = h.id)::int AS members
     FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY h.created_at`, [req.user.id])).rows;
   const u = req.user;
-  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", xp: u.xp, badges: u.badges, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
+  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
 }));
 app.patch("/api/me", requireUser, h(async (req, res) => {
   const name = String(req.body.name || "").trim().slice(0, 60); if (!name) throw bad("bad_name", "Nom requis.");
-  const bio = req.body.bio == null ? undefined : String(req.body.bio).trim().slice(0, 280);
-  if (bio === undefined) await q("UPDATE users SET name = $2 WHERE id = $1", [req.user.id, name]);
-  else await q("UPDATE users SET name = $2, bio = $3 WHERE id = $1", [req.user.id, name, bio]);
+  const bio = req.body.bio == null ? req.user.bio : String(req.body.bio).trim().slice(0, 280);
+  const hide = req.body.hideFromLeaderboard == null ? req.user.hide_from_leaderboard : !!req.body.hideFromLeaderboard;
+  await q("UPDATE users SET name = $2, bio = $3, hide_from_leaderboard = $4 WHERE id = $1", [req.user.id, name, bio, hide]);
   res.json({ ok: true });
+}));
+app.get("/api/leaderboard", requireUser, h(async (req, res) => {
+  const top = (await q("SELECT id, name, avatar, xp FROM users WHERE hide_from_leaderboard = false AND verified_at IS NOT NULL ORDER BY xp DESC, created_at ASC LIMIT 100")).rows;
+  let me = null;
+  if (!req.user.hide_from_leaderboard) {
+    const r = (await q("SELECT count(*)::int AS n FROM users WHERE hide_from_leaderboard = false AND verified_at IS NOT NULL AND (xp > $1 OR (xp = $1 AND created_at < (SELECT created_at FROM users WHERE id = $2)))", [req.user.xp, req.user.id])).rows[0];
+    me = { rank: r.n + 1, xp: req.user.xp };
+  }
+  res.json({ top, me, hidden: !!req.user.hide_from_leaderboard });
 }));
 function checkImageDataUrl(image, maxLen) {
   if (typeof image !== "string" || !/^data:image\/(png|jpe?g|webp);base64,/.test(image)) throw bad("bad_image", "Image invalide.");

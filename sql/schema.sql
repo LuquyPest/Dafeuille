@@ -19,6 +19,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS banner text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS bio    text NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS xp     integer NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS badges jsonb   NOT NULL DEFAULT '[]';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hide_from_leaderboard boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS users_xp_idx ON users (xp DESC) WHERE hide_from_leaderboard = false;
 
 CREATE TABLE IF NOT EXISTS sessions (
   id          text PRIMARY KEY,                 -- empreinte SHA-256 du jeton
