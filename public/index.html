@@ -1849,7 +1849,7 @@ async function generateRecurring(){
       if (r.freq === "week" && !isInc) {
         const d = parseD(r.startDate || r.start + "-01"); let g = 0;
         while (dstr(d) <= todayStr() && g++ < 160) { const ds = dstr(d), id = `rec-${r.id}-${ds}`;
-          if (!have.has(id) && !written.has(id) && !(r.skip || []).includes(ds)) todo.push(["expenses", {id, amount:r.amount, label:r.label, cat:r.cat, payer:r.payer, split:r.split || "all", shares:r.shares || null, date:ds, recurringId:r.id, by:r.by || "", createdAt:Date.now()}]);
+          if (!have.has(id) && !written.has(id) && !(r.skip || []).includes(ds)) todo.push(["expenses", {id, amount:r.amount, label:r.label, cat:r.cat, payer:r.payer, split:r.split || "all", shares:r.shares || null, accountId:r.accountId || null, date:ds, recurringId:r.id, by:r.by || "", createdAt:Date.now()}]);
           d.setDate(d.getDate() + 7); }
         continue;
       }
@@ -1861,8 +1861,8 @@ async function generateRecurring(){
         if (!have.has(id) && !written.has(id) && !(r.skip || []).includes(k)) {
           const date = `${k}-${pad(Math.min(r.day || 1, 28))}`;
           todo.push(isInc
-            ? ["incomes", {id, amount:r.amount, label:r.label, who:r.who || "", date, recurringId:r.id, createdAt:Date.now()}]
-            : ["expenses", {id, amount:r.amount, label:r.label, cat:r.cat, payer:r.payer, split:r.split || "all", shares:r.shares || null,
+            ? ["incomes", {id, amount:r.amount, label:r.label, who:r.who || "", accountId:r.accountId || null, date, recurringId:r.id, createdAt:Date.now()}]
+            : ["expenses", {id, amount:r.amount, label:r.label, cat:r.cat, payer:r.payer, split:r.split || "all", shares:r.shares || null, accountId:r.accountId || null,
                             date, recurringId:r.id, by:r.by || "", createdAt:Date.now()}]);
         }
         k = nextKey(k);
@@ -2531,7 +2531,14 @@ $("#fLabel").addEventListener("input", () => {
   if (catTouched || $("#fMulti").checked) return;
   const g = guessCat($("#fLabel").value); if (g !== "autre") setRadio("cat", g);
 });
+function needsAccountFirst(){
+  if (state.accounts.length) return false;
+  toast("Créez d'abord un compte pour enregistrer une transaction");
+  openAccount(null);
+  return true;
+}
 function openExpense(exp, list = "expenses", prefill = {}, onSaved = null){
+  if (!exp && needsAccountFirst()) return;
   ed = {exp, list, onSaved};
   const src = exp || prefill;
   $("#expTitle").textContent = exp ? "Modifier la dépense" : "Nouvelle dépense";
@@ -2582,8 +2589,8 @@ function openExpense(exp, list = "expenses", prefill = {}, onSaved = null){
   $("#fProj").innerHTML = `<option value="">Aucun</option>` + projs.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.exclude ? " (hors budget)" : ""}</option>`).join("");
   $("#fProj").value = projs.some(p => p.id === src.project) ? src.project : "";
   $("#fAccField").hidden = !state.accounts.length;
-  $("#fAccount").innerHTML = `<option value="">Aucun compte</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
-  $("#fAccount").value = state.accounts.some(a => a.id === src.accountId) ? src.accountId : "";
+  $("#fAccount").innerHTML = `<option value="">${exp ? "Aucun compte" : "Choisir un compte…"}</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  $("#fAccount").value = state.accounts.some(a => a.id === src.accountId) ? src.accountId : (exp ? "" : state.accounts[0]?.id || "");
   catTouched = !!(exp || src.cat);
   $("#favSave").hidden = !!exp;
   $("#dupBtn").hidden = !exp;
@@ -2641,6 +2648,7 @@ $("#expForm").addEventListener("submit", async ev => {
   const conv = c => Math.round(c * rate);
   const date = $("#fDate").value;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return err("Choisissez une date.");
+  if (!ed.exp && !$("#fAccount").value) { err("Choisissez un compte."); $("#fAccount").focus(); return; }
   const priv = $("#fPriv").checked && privAllowed();
   const multi = $("#fMulti").checked && !ed.exp;
   const rec = $("#fRec").checked && !ed.exp && !priv && !multi;
@@ -2688,7 +2696,7 @@ $("#expForm").addEventListener("submit", async ev => {
       else await store.upsert(list, item);
       const r = item.recurringId && $("#fRecAll").checked && state.recurring.find(x => x.id === item.recurringId);
       if (r && ed.list === list) {
-        const tpl = {amount:item.amount, label, cat, payer, split, shares};
+        const tpl = {amount:item.amount, label, cat, payer, split, shares, accountId:base.accountId};
         await store.upsert("recurring", {...r, ...tpl, day:Math.min(Number(date.slice(8, 10)), 28)});
         const later = state.expenses.filter(x => x.recurringId === r.id && x.id !== item.id && x.date > item.date);
         for (const x of later) await store.upsert("expenses", {...x, ...tpl, date:r.freq === "week" ? x.date : x.date.slice(0, 8) + pad(Math.min(Number(date.slice(8, 10)), 28))});
@@ -2696,7 +2704,7 @@ $("#expForm").addEventListener("submit", async ev => {
       } else toast("Dépense modifiée");
     } else if (rec) {
       const rid = uid(), k = date.slice(0, 7), day = Math.min(Number(date.slice(8, 10)), 28);
-      await store.upsert("recurring", {id:rid, kind:"expense", amount:conv(orig), label, cat, payer, split, shares, day, start:k, startDate:date, ...recFreq(), skip:[], by:me() || null, createdAt:Date.now()});
+      await store.upsert("recurring", {id:rid, kind:"expense", amount:conv(orig), label, cat, payer, split, shares, accountId:base.accountId, day, start:k, startDate:date, ...recFreq(), skip:[], by:me() || null, createdAt:Date.now()});
       const eid = recFreq().freq === "week" ? `rec-${rid}-${date}` : recId(rid, k); written.add(eid);
       await store.upsert("expenses", {...base, id:eid, amount:conv(orig), origAmount:cur !== BASE() ? orig : null, shares, recurringId:rid, createdAt:Date.now()});
       toast("Dépense fixe ajoutée : elle reviendra chaque mois");
@@ -2780,6 +2788,7 @@ $("#dupBtn").addEventListener("click", () => {
 /* ================= Revenus ================= */
 const incDlg = $("#incDlg"); let incEd = null;
 function openIncome(inc){
+  if (!inc && needsAccountFirst()) return;
   incEd = inc || null;
   $("#incTitle").textContent = inc ? "Modifier le revenu" : "Nouveau revenu";
   $("#incDel").hidden = !inc; $("#incErr").textContent = "";
@@ -2788,8 +2797,8 @@ function openIncome(inc){
   $("#iWho").innerHTML = radios("iwho", [{id:"", label:"Foyer"}].concat(members().map(m => ({id:m.id, label:esc(m.name)}))), inc ? inc.who || "" : (me() || ""));
   $("#iDate").value = inc ? inc.date : defDate();
   $("#iAccField").hidden = !state.accounts.length;
-  $("#iAccount").innerHTML = `<option value="">Aucun compte</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
-  $("#iAccount").value = state.accounts.some(a => a.id === inc?.accountId) ? inc.accountId : "";
+  $("#iAccount").innerHTML = `<option value="">${inc ? "Aucun compte" : "Choisir un compte…"}</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  $("#iAccount").value = state.accounts.some(a => a.id === inc?.accountId) ? inc.accountId : (inc ? "" : state.accounts[0]?.id || "");
   $("#iRec").checked = false; $("#iRecField").hidden = !!inc;
   incDlg.showModal(); setTimeout(() => $("#iAmount").focus(), 60);
 }
@@ -2798,12 +2807,13 @@ $("#incForm").addEventListener("submit", async ev => {
   const amount = parseAmount($("#iAmount").value), date = $("#iDate").value;
   if (!Number.isFinite(amount) || amount <= 0) { $("#incErr").textContent = "Indiquez un montant supérieur à 0."; return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { $("#incErr").textContent = "Choisissez une date."; return; }
+  if (!incEd && !$("#iAccount").value) { $("#incErr").textContent = "Choisissez un compte."; $("#iAccount").focus(); return; }
   const item = {amount, label:$("#iLabel").value.trim().slice(0, 60), who:val("iwho") || "", date, accountId:$("#iAccount").value || null};
   try {
     if (incEd) await store.upsert("incomes", {...incEd, ...item});
     else if ($("#iRec").checked) {
       const rid = uid(), k = date.slice(0, 7);
-      await store.upsert("recurring", {id:rid, kind:"income", amount, label:item.label, who:item.who, day:Math.min(Number(date.slice(8, 10)), 28), start:k, skip:[], createdAt:Date.now()});
+      await store.upsert("recurring", {id:rid, kind:"income", amount, label:item.label, who:item.who, accountId:item.accountId, day:Math.min(Number(date.slice(8, 10)), 28), start:k, skip:[], createdAt:Date.now()});
       const iid = recId(rid, k); written.add(iid);
       await store.upsert("incomes", {...item, id:iid, recurringId:rid, createdAt:Date.now()});
     } else await store.upsert("incomes", {...item, createdAt:Date.now()});
@@ -3767,13 +3777,14 @@ function setQKind(k){
   $("#qHint").textContent = k === "income" ? "Montant, puis Enregistrer" : `Montant, puis catégorie${me() ? " · " + memberName(me()) : ""} · aujourd'hui`;
 }
 function openQuick(){
+  if (needsAccountFirst()) return;
   qBuf = "";
   $("#qPad").innerHTML = ["1","2","3","4","5","6","7","8","9",",","0","⌫"].map(k => `<button type="button" data-q="${k}" aria-label="${k === "⌫" ? "Effacer" : k}">${k === "⌫" ? I("delete") : k}</button>`).join("");
   $("#qKind").innerHTML = `<button type="button" class="chip" data-qk="expense">− Dépense</button><button type="button" class="chip" data-qk="income">+ Revenu</button><button type="button" class="chip" data-qk="transfer">⇄ Virement</button>`;
   $("#qCats").innerHTML = topCats().map(c => `<button type="button" data-qc="${esc(c.id)}" style="background:${c.color}">${I(c.ico || "tag")}${esc(c.name)}</button>`).join("");
   $("#qIncomeLabel").value = "";
-  $("#qAccField").hidden = !state.accounts.length;
-  $("#qAccount").innerHTML = `<option value="">Aucun compte</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  $("#qAccField").hidden = false;
+  $("#qAccount").innerHTML = state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
   setQKind("expense");
   renderQuick(); quickDlg.showModal();
 }
@@ -5864,7 +5875,7 @@ $("#pdfYear").addEventListener("click", async () => { try { await pdfYear(); } c
 $$("[data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
 $$("dialog").forEach(d => d.addEventListener("click", e => { if (e.target === d) d.close(); }));
 const kindDlg = $("#kindDlg");
-function openKindChooser(){ kindDlg.showModal(); }
+function openKindChooser(){ if (needsAccountFirst()) return; kindDlg.showModal(); }
 $("#kExp").addEventListener("click", () => { kindDlg.close(); openExpense(null); });
 $("#kInc").addEventListener("click", () => { kindDlg.close(); openIncome(null); });
 $("#kTrf").addEventListener("click", () => { kindDlg.close(); if (state.accounts.length < 2) { toast("Il faut au moins deux comptes pour faire un virement"); return; } openTransfer(null); });
