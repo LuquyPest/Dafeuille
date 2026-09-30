@@ -50,6 +50,21 @@ CREATE TABLE IF NOT EXISTS households (
 -- xp/badges appartiennent à la personne (users), pas au foyer : voir plus haut.
 ALTER TABLE households DROP COLUMN IF EXISTS xp;
 ALTER TABLE households DROP COLUMN IF EXISTS badges;
+ALTER TABLE households ADD COLUMN IF NOT EXISTS ics_token text;
+CREATE UNIQUE INDEX IF NOT EXISTS households_ics_token_idx ON households (ics_token) WHERE ics_token IS NOT NULL;
+
+-- Lien public (token en clair, fait pour être partagé) donnant un accès en ajout
+-- seulement à un groupe "entre amis" précis, sans compte ni session.
+CREATE TABLE IF NOT EXISTS group_links (
+  id           text PRIMARY KEY,
+  token        text NOT NULL UNIQUE,
+  household_id text NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  group_id     text NOT NULL,
+  created_by   text REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  revoked_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS group_links_group_idx ON group_links (household_id, group_id) WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS memberships (
   household_id text NOT NULL REFERENCES households(id) ON DELETE CASCADE,

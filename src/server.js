@@ -485,7 +485,7 @@ app.post("/api/invites/:token/accept", requireUser, h(async (req, res) => { res.
 const ACTION_XP = {
   expenses: 2, revenus: 2, remboursements: 3, epargne: 3, defis: 5, projets: 3, comptes: 3, dettes: 3,
   cagnotte: 2, argentdepoche: 2, garanties: 2, groupes: 2, courses: 1, factures: 1, repas: 1, papiers: 2,
-  vehicules: 2, placards: 1, menage: 1, souhaits: 1, evenements: 1, compteurs: 1, bilans: 3, journal: 1, sante: 1,
+  vehicules: 2, placards: 1, menage: 1, souhaits: 1, evenements: 1, compteurs: 1, bilans: 3, journal: 1, sante: 1, virements: 2,
 };
 // Catalogue serveur des badges : id -> xp accordé au déblocage (le client détermine QUAND un badge est débloqué,
 // le serveur ne fait confiance qu'à cette table pour la VALEUR en xp, et n'accorde jamais deux fois le même id).
@@ -559,6 +559,101 @@ app.delete("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
   await asUser(req.user.id, async c => {
     await c.query("DELETE FROM docs WHERE household_id = $1 AND coll = $2 AND id = $3 AND owner = $4", [req.params.hid, coll, id, owner]);
     await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify({ t: "doc", hid: req.params.hid, coll, id, owner, deleted: true, by: req.user.id })]);
+  });
+  res.json({ ok: true });
+}));
+
+/* ---------------------------- Agenda : flux ICS ---------------------------- */
+function icsEscape(s) { return String(s || "").replace(/\\/g, "\\\\").replace(/[,;]/g, m => "\\" + m).replace(/\r?\n/g, "\\n"); }
+function icsDate(d) { return String(d || "").replace(/-/g, ""); }
+function buildIcs(householdName, events, todos) {
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//DAFeuille//Agenda//FR", "CALSCALE:GREGORIAN", `X-WR-CALNAME:${icsEscape(householdName + " · DAFeuille")}`];
+  for (const e of events) {
+    if (!e.date) continue;
+    lines.push("BEGIN:VEVENT", `UID:evt-${e.id}@dafeuille`, `DTSTART;VALUE=DATE:${icsDate(e.date)}`, `SUMMARY:${icsEscape(e.title || "Événement")}`);
+    if (e.yearly) lines.push("RRULE:FREQ=YEARLY");
+    lines.push("END:VEVENT");
+  }
+  for (const t of todos) {
+    if (!t.due || t.done) continue;
+    lines.push("BEGIN:VEVENT", `UID:todo-${t.id}@dafeuille`, `DTSTART;VALUE=DATE:${icsDate(t.due)}`, `SUMMARY:${icsEscape("Facture : " + (t.title || ""))}`, "END:VEVENT");
+  }
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+}
+app.post("/api/h/:hid/ics-token", requireUser, member, h(async (req, res) => {
+  const token = newToken();
+  await q("UPDATE households SET ics_token = $2 WHERE id = $1", [req.params.hid, token]);
+  res.json({ url: `${CFG.appUrl}/api/ics/${token}` });
+}));
+app.delete("/api/h/:hid/ics-token", requireUser, member, h(async (req, res) => {
+  await q("UPDATE households SET ics_token = NULL WHERE id = $1", [req.params.hid]);
+  res.json({ ok: true });
+}));
+app.get("/api/ics/:token", h(async (req, res) => {
+  limit("ics:" + req.ip, 120, 3600e3);
+  const hh = (await q("SELECT id, name, created_by FROM households WHERE ics_token = $1", [req.params.token])).rows[0];
+  if (!hh) throw new HttpError(404, "not_found", "Lien invalide.");
+  const docs = (await asUser(hh.created_by, c => c.query("SELECT coll, id, data FROM docs WHERE household_id = $1 AND coll IN ('evenements','factures')", [hh.id]))).rows;
+  const events = docs.filter(d => d.coll === "evenements").map(d => ({ ...d.data, id: d.id }));
+  const todos = docs.filter(d => d.coll === "factures").map(d => ({ ...d.data, id: d.id }));
+  res.set("Content-Type", "text/calendar; charset=utf-8");
+  res.send(buildIcs(hh.name, events, todos));
+}));
+
+/* ---------------------------- Groupes : lien public "entre amis" ---------------------------- */
+app.post("/api/h/:hid/groups/:gid/link/rotate", requireUser, member, h(async (req, res) => {
+  if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  const exists = await asUser(req.user.id, c => c.query("SELECT 1 FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [req.params.hid, req.params.gid]));
+  if (!exists.rows[0]) throw new HttpError(404, "not_found", "Groupe introuvable.");
+  await q("UPDATE group_links SET revoked_at = now() WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid]);
+  const token = newToken();
+  await q("INSERT INTO group_links (id, token, household_id, group_id, created_by) VALUES ($1,$2,$3,$4,$5)", [uuid(), token, req.params.hid, req.params.gid, req.user.id]);
+  res.json({ token, url: `${CFG.appUrl}/?groupe=${token}` });
+}));
+app.get("/api/h/:hid/groups/:gid/link", requireUser, member, h(async (req, res) => {
+  const r = (await q("SELECT token, created_at FROM group_links WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid])).rows[0];
+  res.json(r ? { token: r.token, url: `${CFG.appUrl}/?groupe=${r.token}`, createdAt: r.created_at } : { token: null });
+}));
+app.delete("/api/h/:hid/groups/:gid/link", requireUser, member, h(async (req, res) => {
+  if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  await q("UPDATE group_links SET revoked_at = now() WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid]);
+  res.json({ ok: true });
+}));
+async function groupLink(token) {
+  const r = (await q("SELECT * FROM group_links WHERE token = $1 AND revoked_at IS NULL", [token])).rows[0];
+  if (!r) throw new HttpError(404, "not_found", "Lien invalide ou révoqué.");
+  return r;
+}
+app.get("/api/public/group/:token", h(async (req, res) => {
+  limit("pub-group-ip:" + req.ip, 120, 3600e3);
+  const gl = await groupLink(req.params.token);
+  const r = (await asUser(gl.created_by, c => c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [gl.household_id, gl.group_id]))).rows[0];
+  if (!r) throw new HttpError(404, "not_found", "Groupe introuvable.");
+  const g = r.data;
+  res.json({ name: g.name, people: g.people || [], items: g.items || [] });
+}));
+app.post("/api/public/group/:token/item", h(async (req, res) => {
+  limit("pub-group:" + req.params.token, 40, 3600e3);
+  limit("pub-group-ip:" + req.ip, 40, 3600e3);
+  const gl = await groupLink(req.params.token);
+  const label = String(req.body.label || "").trim().slice(0, 80);
+  const amount = +req.body.amount;
+  const payerName = String(req.body.payerName || "").trim().slice(0, 30);
+  const payerId = String(req.body.payerId || "").trim();
+  const parts = Array.isArray(req.body.parts) ? req.body.parts.filter(p => typeof p === "string").slice(0, 50) : null;
+  if (!label || !(amount > 0) || amount > 1000000) throw bad("bad_data", "Dépense invalide.");
+  if (!payerId && !payerName) throw bad("bad_data", "Indiquez qui a payé.");
+  await asUser(gl.created_by, async c => {
+    const r = await c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2 FOR UPDATE", [gl.household_id, gl.group_id]);
+    if (!r.rows[0]) throw new HttpError(404, "not_found", "Groupe introuvable.");
+    const g = r.rows[0].data;
+    g.people = g.people || []; g.items = g.items || [];
+    let pid = payerId && g.people.some(p => p.id === payerId) ? payerId : null;
+    if (!pid) { pid = uuid().slice(0, 8); g.people.push({ id: pid, name: payerName || "Ami" }); }
+    g.items.push({ id: uuid().slice(0, 8), label, amount, payer: pid, parts: parts && parts.length ? parts : g.people.map(p => p.id), date: new Date().toISOString().slice(0, 10), createdAt: Date.now() });
+    await c.query("UPDATE docs SET data = $3, updated_at = now() WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [gl.household_id, gl.group_id, JSON.stringify(g)]);
+    await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify({ t: "doc", hid: gl.household_id, coll: "groupes", id: gl.group_id, owner: "", data: g })]);
   });
   res.json({ ok: true });
 }));
