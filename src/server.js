@@ -355,7 +355,7 @@ app.patch("/api/me", requireUser, h(async (req, res) => {
   res.json({ ok: true });
 }));
 app.get("/api/leaderboard", requireUser, h(async (req, res) => {
-  const top = (await q("SELECT id, name, avatar, xp FROM users WHERE hide_from_leaderboard = false AND verified_at IS NOT NULL ORDER BY xp DESC, created_at ASC LIMIT 100")).rows;
+  const top = (await q("SELECT id, name, avatar, bio, badges, xp FROM users WHERE hide_from_leaderboard = false AND verified_at IS NOT NULL ORDER BY xp DESC, created_at ASC LIMIT 100")).rows;
   let me = null;
   if (!req.user.hide_from_leaderboard) {
     const r = (await q("SELECT count(*)::int AS n FROM users WHERE hide_from_leaderboard = false AND verified_at IS NOT NULL AND (xp > $1 OR (xp = $1 AND created_at < (SELECT created_at FROM users WHERE id = $2)))", [req.user.xp, req.user.id])).rows[0];

@@ -437,7 +437,7 @@ details.more[open] summary{margin-bottom:12px}
 .pf-av-edit .i{width:15px;height:15px}
 .pf-level .bar{height:10px}
 #acctChip .av,.pf-av{overflow:hidden}
-#acctChip .av img,.pf-av img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+#acctChip .av img,.pf-av img,.podium .av img,#leaderBody .av img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .simrow{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:.9rem}
 .simrow span{flex:1;min-width:0;display:flex;align-items:center;gap:6px}
 .simrow .inp{flex:0 0 100px;padding:6px 8px}
@@ -517,6 +517,31 @@ img.av{object-fit:cover}
   #acctChip:hover{background:var(--surface-2)}
   .swatch{border-radius:6px}
 }
+@media (min-width:880px){ #leaderDlg{max-width:1000px} }
+
+/* ---------- Classement : podium ---------- */
+@keyframes podiumRise{from{opacity:0;transform:translateY(28px) scale(.85)}to{opacity:1;transform:none}}
+@keyframes podiumPop{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.08);opacity:1}100%{transform:scale(1)}}
+@keyframes rowIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:10px;margin:4px 0 26px;padding:0 4px}
+.podium .pplace{flex:1;max-width:170px;display:flex;flex-direction:column;align-items:center;cursor:pointer;border:0;background:none;padding:0;text-align:center;animation:podiumRise .5s cubic-bezier(.2,.8,.3,1.3) both;transition:transform .15s}
+.podium .pplace:hover{transform:translateY(-4px)}
+.podium .p2{animation-delay:.05s}
+.podium .p1{animation-delay:.22s}
+.podium .p3{animation-delay:0s}
+.podium .crown{font-size:1.5rem;line-height:1;margin-bottom:2px;animation:podiumPop .5s .5s cubic-bezier(.3,1.6,.4,1) both}
+.podium .pav{width:60px;height:60px;border-radius:50%;font-size:1.25rem;margin-bottom:8px;box-shadow:0 0 0 3px var(--surface),0 0 0 5px var(--line);overflow:hidden}
+.podium .p1 .pav{width:86px;height:86px;font-size:1.7rem;box-shadow:0 0 0 3px var(--surface),0 0 0 5px #F5A623}
+.podium .pname{font-weight:700;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.podium .pxp{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;font-weight:600}
+.podium .pedestal{width:100%;border-radius:10px 10px 0 0;margin-top:10px;display:flex;align-items:flex-start;justify-content:center;padding-top:8px;font-weight:800;font-size:1.3rem;color:#fff}
+.podium .p1 .pedestal{height:104px;background:linear-gradient(160deg,#FFD76A,#F5A623)}
+.podium .p2 .pedestal{height:76px;background:linear-gradient(160deg,#E3E7EE,#AEB7C4)}
+.podium .p3 .pedestal{height:58px;background:linear-gradient(160deg,#E8B084,#C97A44)}
+#leaderBody .items > li{animation:rowIn .3s ease both}
+#leaderBody .row-btn{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:0;background:none;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background .12s}
+#leaderBody .row-btn:hover{background:var(--surface-2)}
+#leaderBody .row-btn.me{background:var(--accent-soft)}
 </style>
 </head>
 <body>
@@ -1214,13 +1239,14 @@ img.av{object-fit:cover}
 </dialog>
 
 <!-- ============ Classement ============ -->
-<dialog id="leaderDlg" aria-labelledby="leaderTitle">
+<dialog id="leaderDlg" class="wide" aria-labelledby="leaderTitle">
   <div class="sheet">
-    <div class="sheet-head"><h2 id="leaderTitle">Classement</h2><button type="button" class="linkbtn" data-close>Fermer</button></div>
-    <div class="chips" id="leaderMode" role="radiogroup" aria-label="Classement" style="margin-bottom:14px">
-      <button type="button" class="chip" data-lmode="global" aria-pressed="true">Mondial</button>
-      <button type="button" class="chip" data-lmode="house" aria-pressed="false">Mon foyer</button>
+    <div class="sheet-head"><h2 id="leaderTitle">🏆 Classement</h2><button type="button" class="linkbtn" data-close>Fermer</button></div>
+    <div class="chips" id="leaderMode" role="radiogroup" aria-label="Classement" style="margin-bottom:18px">
+      <button type="button" class="chip" data-lmode="global" aria-pressed="true">🌍 Mondial</button>
+      <button type="button" class="chip" data-lmode="house" aria-pressed="false">🏠 Mon foyer</button>
     </div>
+    <div id="leaderPodium" class="podium"></div>
     <div id="leaderBody"></div>
   </div>
 </dialog>
@@ -5995,33 +6021,75 @@ function initProfileDlg(){
   });
   $("#pfLeaderBtn").addEventListener("click", () => { $("#profileDlg").close(); openLeaderboard(); });
 }
-let leaderMode = "global";
-async function renderLeaderboard(){
-  const box = $("#leaderBody");
-  box.innerHTML = `<div class="skel"></div>`.repeat(6);
-  try {
-    if (leaderMode === "global") {
-      const r = await api("GET", "/api/leaderboard");
-      const rows = r.top.map((u, i) => leaderRowHtml(i + 1, u.id === SV.me.id, u));
-      const meRow = r.hidden ? `<p class="muted small" style="margin-top:10px">Ton profil est masqué du classement mondial.</p>`
-        : (r.me && r.me.rank > r.top.length ? `<div class="day">Toi</div>` + leaderRowHtml(r.me.rank, true, SV.me) : "");
-      box.innerHTML = (rows.length ? `<ul class="items">${rows.join("")}</ul>` : `<div class="empty">${I("trophy")}Personne pour l'instant</div>`) + meRow;
-    } else {
-      const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/members`);
-      const rows = r.members.slice().sort((a, b) => (b.xp || 0) - (a.xp || 0)).map((u, i) => leaderRowHtml(i + 1, u.id === SV.me.id, u));
-      box.innerHTML = rows.length ? `<ul class="items">${rows.join("")}</ul>` : `<div class="empty">${I("trophy")}Personne pour l'instant</div>`;
-    }
-  } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+let leaderMode = "global", leaderPeople = new Map();
+function animateCount(el, to){
+  const start = performance.now(), dur = 700;
+  function tick(now){
+    const p = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(to * e) + " XP";
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+function renderPodium(top3){
+  const box = $("#leaderPodium");
+  if (!top3.length) { box.innerHTML = ""; box.hidden = true; return; }
+  box.hidden = false;
+  const order = [top3[1], top3[0], top3[2]].filter(Boolean);
+  box.innerHTML = order.map(u => {
+    if (!u) return "";
+    const rank = top3.indexOf(u) + 1, li = levelInfo(u.xp || 0);
+    return `<button type="button" class="pplace p${rank}" data-uid="${esc(u.id)}">
+      ${rank === 1 ? `<span class="crown">👑</span>` : ""}
+      <span class="av pav" aria-hidden="true">${acctAvatarHtml(u)}</span>
+      <span class="pname">${esc(u.name || "?")}${u.id === SV.me.id ? " (toi)" : ""}</span>
+      <span class="pxp" data-xp="${u.xp || 0}">0 XP</span>
+      <div class="pedestal">${["🥇","🥈","🥉"][rank - 1]}</div>
+    </button>`;
+  }).join("");
+  setTimeout(() => { $$("#leaderPodium .pxp").forEach(el => animateCount(el, +el.dataset.xp)); }, 550);
 }
 function leaderRowHtml(rank, mine, u){
   const li = levelInfo(u.xp || 0);
-  return `<li style="${mine ? "background:var(--accent-soft);border-radius:12px" : ""}"><span class="ic" style="background:none;font-weight:700;color:var(--muted)">${rank <= 3 ? ["🥇","🥈","🥉"][rank - 1] : rank}</span>
+  leaderPeople.set(u.id, u);
+  return `<li style="animation-delay:${Math.min(rank, 12) * 0.02}s"><button type="button" class="row-btn${mine ? " me" : ""}" data-uid="${esc(u.id)}">
+    <span class="ic" style="background:none;font-weight:700;color:var(--muted)">${rank}</span>
     <span class="av" style="width:32px;height:32px;overflow:hidden">${acctAvatarHtml(u)}</span>
-    <span class="tx">${esc(u.name || "?")}${mine ? " (toi)" : ""}<span>Niveau ${li.level} · ${li.title}</span></span><b>${u.xp || 0} XP</b></li>`;
+    <span class="tx">${esc(u.name || "?")}${mine ? " (toi)" : ""}<span>Niveau ${li.level} · ${li.title}</span></span><b>${u.xp || 0} XP</b>
+  </button></li>`;
+}
+async function renderLeaderboard(){
+  const box = $("#leaderBody");
+  box.innerHTML = `<div class="skel"></div>`.repeat(6);
+  $("#leaderPodium").innerHTML = ""; $("#leaderPodium").hidden = true;
+  leaderPeople = new Map();
+  try {
+    if (leaderMode === "global") {
+      const r = await api("GET", "/api/leaderboard");
+      r.top.forEach(u => leaderPeople.set(u.id, u));
+      renderPodium(r.top.slice(0, 3));
+      const rows = r.top.slice(3).map((u, i) => leaderRowHtml(i + 4, u.id === SV.me.id, u));
+      const meRow = r.hidden ? `<p class="muted small" style="margin-top:10px">Ton profil est masqué du classement mondial.</p>`
+        : (r.me && r.me.rank > r.top.length ? `<div class="day">Toi</div>` + leaderRowHtml(r.me.rank, true, SV.me) : "");
+      box.innerHTML = (rows.length ? `<ul class="items">${rows.join("")}</ul>` : (r.top.length ? "" : `<div class="empty">${I("trophy")}Personne pour l'instant</div>`)) + meRow;
+    } else {
+      const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/members`);
+      const sorted = r.members.slice().sort((a, b) => (b.xp || 0) - (a.xp || 0));
+      renderPodium(sorted.slice(0, 3));
+      const rows = sorted.slice(3).map((u, i) => leaderRowHtml(i + 4, u.id === SV.me.id, u));
+      box.innerHTML = rows.length ? `<ul class="items">${rows.join("")}</ul>` : (sorted.length ? "" : `<div class="empty">${I("trophy")}Personne pour l'instant</div>`);
+    }
+  } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 function openLeaderboard(){
   $("#leaderDlg").showModal(); renderLeaderboard();
 }
+$("#leaderDlg").addEventListener("click", e => {
+  const b = e.target.closest("[data-uid]"); if (!b) return;
+  const u = leaderPeople.get(b.dataset.uid); if (!u) return;
+  $("#leaderDlg").close();
+  openProfile(u, u.id === SV.me.id);
+});
 $("#leaderMode").addEventListener("click", e => {
   const b = e.target.closest("[data-lmode]"); if (!b) return;
   leaderMode = b.dataset.lmode;
