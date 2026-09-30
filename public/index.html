@@ -74,7 +74,7 @@ button{cursor:pointer}
 .i{width:1.15em;height:1.15em;flex:none;vertical-align:-.2em}
 .num,.total,.kpi b,.am,.bigval,table.t{font-variant-numeric:tabular-nums}
 .wrap{max-width:1200px;margin:0 auto;padding:18px 18px 170px}
-@media (min-width:880px){.wrap{max-width:1560px;margin:0 0 0 272px;padding:28px 32px 60px}}
+@media (min-width:880px){.wrap{max-width:2200px;margin:0 0 0 272px;padding:28px 32px 60px}}
 
 /* ---------- En-tête ---------- */
 header.top{display:flex;align-items:center;gap:8px;padding:2px 0 18px}
@@ -731,24 +731,28 @@ img.av{object-fit:cover}
   <!-- ============ COURSES ============ -->
   <section data-view="courses" hidden>
     <div class="grid even">
-      <section class="panel">
-        <h2>Liste de courses</h2>
-        <form class="addrow" id="shopForm">
-          <input class="inp" id="shopName" placeholder="Ajouter un article (ex. lait)" maxlength="60" aria-label="Article">
-          <input class="inp q" id="shopQty" placeholder="Qté" maxlength="10" aria-label="Quantité">
-          <button class="btn" type="submit">Ajouter</button>
-        </form>
-        <div id="shop"></div>
-      </section>
-      <section class="panel">
-        <div class="month"><button id="weekPrev" aria-label="Semaine précédente">‹</button><span class="month-name" id="mealTitle">Menus de la semaine</span><button id="weekNext" aria-label="Semaine suivante">›</button></div>
-        <div id="meals"></div>
-        <div class="actions"><button class="btn sm ghost" id="printShop"><i data-i="printer"></i>PDF</button><button class="btn sm ghost push" id="mealsToShop"><i data-i="shopping-cart"></i>Vers la liste</button></div>
-      </section>
-      <section class="panel">
-        <div class="phead"><h2>Placards et congélateur</h2><button class="btn sm" id="addInv">+ Article</button></div>
-        <div id="inv"></div>
-      </section>
+      <div class="col">
+        <section class="panel">
+          <h2>Liste de courses</h2>
+          <form class="addrow" id="shopForm">
+            <input class="inp" id="shopName" placeholder="Ajouter un article (ex. lait)" maxlength="60" aria-label="Article">
+            <input class="inp q" id="shopQty" placeholder="Qté" maxlength="10" aria-label="Quantité">
+            <button class="btn" type="submit">Ajouter</button>
+          </form>
+          <div id="shop"></div>
+        </section>
+        <section class="panel">
+          <div class="phead"><h2>Placards et congélateur</h2><button class="btn sm" id="addInv">+ Article</button></div>
+          <div id="inv"></div>
+        </section>
+      </div>
+      <div class="col">
+        <section class="panel">
+          <div class="month"><button id="weekPrev" aria-label="Semaine précédente">‹</button><span class="month-name" id="mealTitle">Menus de la semaine</span><button id="weekNext" aria-label="Semaine suivante">›</button></div>
+          <div id="meals"></div>
+          <div class="actions"><button class="btn sm ghost" id="printShop"><i data-i="printer"></i>PDF</button><button class="btn sm ghost push" id="mealsToShop"><i data-i="shopping-cart"></i>Vers la liste</button></div>
+        </section>
+      </div>
     </div>
   </section>
 
