@@ -331,6 +331,7 @@ select.inp,.erow select{appearance:none;-webkit-appearance:none;background-image
 .chips label, .chip{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);border-radius:999px;padding:6px 12px;font-size:.86rem;background:var(--surface);cursor:pointer;font-weight:500;color:var(--ink)}
 .chips label .i, .chip .i{width:15px;height:15px}
 .chips input:checked + label{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.chip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
 .chips input:focus-visible + label{outline:2px solid var(--accent);outline-offset:2px}
 .check{display:flex;align-items:center;gap:10px;font-weight:500;font-size:.92rem;margin-bottom:6px}
 .check input{width:20px;height:20px;accent-color:var(--accent);flex:none}
@@ -492,7 +493,7 @@ img.av{object-fit:cover}
   <header class="top">
     <div class="brand"><i data-logo></i><div><b id="houseName">DAFeuille</b><small id="status">Chargement…</small></div></div>
     <button class="btn ghost quickdesk" id="quickDesk"><i data-i="zap"></i>Éclair</button>
-    <button class="btn addbtn-desk" id="addDesk"><i data-i="plus"></i>Dépense</button>
+    <button class="btn addbtn-desk" id="addDesk"><i data-i="plus"></i>Transaction</button>
     <button class="iconbtn" id="searchBtn" title="Rechercher partout (/)" aria-label="Rechercher partout"><i data-i="search"></i></button>
     <button class="iconbtn" id="hideBtn" title="Masquer les montants" aria-label="Masquer les montants" aria-pressed="false"><i data-i="eye"></i></button>
     <button class="iconbtn" id="exportBtn" title="Exporter" aria-label="Exporter" hidden><i data-i="download"></i></button>
@@ -577,6 +578,10 @@ img.av{object-fit:cover}
       <div class="col">
         <section class="panel" aria-label="Dépenses du mois">
           <div class="phead"><h2 id="listTitle">Dépenses du mois</h2><span class="muted" id="count"></span><button class="iconbtn" id="compactBtn" title="Affichage compact" aria-label="Affichage compact" aria-pressed="false"><i data-i="list"></i></button><button class="btn sm ghost" id="selToggle">Sélectionner</button></div>
+          <div class="chips" id="listMode" role="radiogroup" aria-label="Afficher" style="margin-bottom:10px">
+            <button type="button" class="chip" data-lm="expenses" aria-pressed="true">Dépenses</button>
+            <button type="button" class="chip" data-lm="all" aria-pressed="false">Tout</button>
+          </div>
           <div class="searchrow"><input class="search" id="search" type="search" placeholder="Rechercher un libellé, un commentaire…" aria-label="Rechercher une dépense">
             <label><input type="checkbox" id="searchYear"> Toute l'année</label></div>
           <div class="filters">
@@ -741,6 +746,15 @@ img.av{object-fit:cover}
           </div>
           <div class="cal" id="cal"></div>
           <div id="calDay" style="margin-top:14px"></div>
+          <div class="field" id="icsField" hidden style="margin-top:14px">
+            <span class="lab">Lien calendrier (ICS)</span>
+            <p class="hint" style="margin:0 0 8px">Abonnez Google/Apple Calendar à vos événements et factures.</p>
+            <div id="icsNone"><button type="button" class="btn sm ghost" id="icsGen">Générer le lien</button></div>
+            <div id="icsOn" hidden>
+              <div class="erow"><input class="inp" id="icsUrl" readonly aria-label="Lien du calendrier"><button type="button" class="btn sm ghost" id="icsCopy">Copier</button></div>
+              <div class="actions" style="margin-top:8px"><button type="button" class="btn sm ghost" id="icsRevoke">Révoquer</button></div>
+            </div>
+          </div>
         </section>
       </div>
       <div class="col">
@@ -773,8 +787,9 @@ img.av{object-fit:cover}
     <div class="grid even">
       <div class="col">
         <section class="panel">
-          <div class="phead"><h2>Comptes</h2><button class="btn sm" id="addAccount">+ Compte</button></div>
+          <div class="phead"><h2>Comptes</h2><button class="btn sm ghost" id="addTransfer">+ Virement</button><button class="btn sm" id="addAccount">+ Compte</button></div>
           <div id="accounts"></div>
+          <div id="transfers" style="margin-top:10px"></div>
         </section>
         <section class="panel">
           <div class="phead"><h2>Crédits et dettes</h2><button class="btn sm" id="addDebt">+ Crédit</button></div>
@@ -810,8 +825,20 @@ img.av{object-fit:cover}
   </section>
 </div>
 
-<button class="fab" id="fab" aria-label="Ajouter une dépense"><i data-i="plus"></i></button>
+<button class="fab" id="fab" aria-label="Ajouter une transaction"><i data-i="plus"></i></button>
 <button class="fab2" id="quickFab" aria-label="Saisie éclair"><i data-i="zap"></i></button>
+
+<!-- ============ Choix du type de transaction ============ -->
+<dialog id="kindDlg" aria-labelledby="kindTitle">
+  <div class="sheet">
+    <div class="sheet-head"><h2 id="kindTitle">Nouvelle transaction</h2><button type="button" class="linkbtn" data-close>Annuler</button></div>
+    <div class="grid" style="grid-template-columns:1fr;gap:10px">
+      <button type="button" class="btn push" id="kExp" style="justify-content:flex-start"><i data-i="trending-down"></i>Dépense</button>
+      <button type="button" class="btn push" id="kInc" style="justify-content:flex-start;background:var(--good)"><i data-i="trending-up"></i>Revenu</button>
+      <button type="button" class="btn push ghost" id="kTrf" style="justify-content:flex-start"><i data-i="repeat"></i>Virement entre comptes</button>
+    </div>
+  </div>
+</dialog>
 
 <!-- ============ Feuille dépense ============ -->
 <dialog id="expDlg" aria-labelledby="expTitle">
@@ -848,6 +875,7 @@ img.av{object-fit:cover}
     <div class="field"><label for="fDate">Date</label><input class="inp" id="fDate" type="date"></div>
     <div class="field"><label for="fTags">Étiquettes</label><input class="inp" id="fTags" maxlength="80" placeholder="ex. #noël #voiture" autocomplete="off"><div class="chips" id="tagSugg" style="margin-top:8px"></div></div>
     <div class="field" id="fProjField" hidden><label for="fProj">Projet</label><select class="inp" id="fProj"></select></div>
+    <div class="field" id="fAccField" hidden><label for="fAccount">Compte</label><select class="inp" id="fAccount"></select></div>
     <div class="field" id="fRecAllField" hidden>
       <label class="check"><input type="checkbox" id="fRecAll"> Appliquer aussi aux mois suivants</label>
     </div>
@@ -913,8 +941,23 @@ img.av{object-fit:cover}
     <div class="field"><label for="iLabel">Libellé</label><input class="inp" id="iLabel" maxlength="60" placeholder="ex. Salaire, CAF, prime"></div>
     <div class="field"><span class="lab">Pour</span><div class="chips" id="iWho"></div></div>
     <div class="field"><label for="iDate">Date</label><input class="inp" id="iDate" type="date"></div>
+    <div class="field" id="iAccField" hidden><label for="iAccount">Compte</label><select class="inp" id="iAccount"></select></div>
     <div class="field" id="iRecField"><label class="check"><input type="checkbox" id="iRec"> Chaque mois</label></div>
     <div class="actions"><button type="button" class="btn danger" id="incDel" hidden>Supprimer</button><button type="submit" class="btn push">Enregistrer</button></div>
+  </form>
+</dialog>
+
+<!-- ============ Virement entre comptes ============ -->
+<dialog id="trfDlg" aria-labelledby="trfTitle">
+  <form class="sheet" id="trfForm" novalidate>
+    <div class="sheet-head"><h2 id="trfTitle">Nouveau virement</h2><button type="button" class="linkbtn" data-close>Annuler</button></div>
+    <div class="field"><label for="vFrom">Depuis le compte</label><select class="inp" id="vFrom"></select></div>
+    <div class="field"><label for="vTo">Vers le compte</label><select class="inp" id="vTo"></select></div>
+    <div class="field"><label for="vAmount">Montant (€)</label><input class="inp amount" id="vAmount" inputmode="decimal" placeholder="0,00"></div>
+    <p class="err" id="trfErr" role="alert"></p>
+    <div class="field"><label for="vDate">Date</label><input class="inp" id="vDate" type="date"></div>
+    <div class="field"><label for="vNote">Note</label><input class="inp" id="vNote" maxlength="80" placeholder="ex. Épargne du mois"></div>
+    <div class="actions"><button type="button" class="btn danger" id="trfDel" hidden>Supprimer</button><button type="submit" class="btn push">Enregistrer</button></div>
   </form>
 </dialog>
 
@@ -1220,8 +1263,11 @@ img.av{object-fit:cover}
     <div class="sheet-head"><h2 id="quickTitle">Saisie éclair</h2><button type="button" class="linkbtn" data-close>Fermer</button></div>
     <div class="qamt" id="qAmt" aria-live="polite">0 €</div>
     <div class="qpad" id="qPad"></div>
+    <div class="chips" id="qKind" role="radiogroup" aria-label="Nature" style="justify-content:center;margin:4px 0"></div>
+    <div class="field" id="qAccField" hidden style="max-width:260px;margin:0 auto 10px"><select class="inp" id="qAccount" aria-label="Compte"></select></div>
     <p class="hint" style="text-align:center" id="qHint"></p>
     <div class="qcats" id="qCats"></div>
+    <div class="field" id="qIncomeField" hidden style="max-width:320px;margin:0 auto"><input class="inp" id="qIncomeLabel" maxlength="60" placeholder="ex. Salaire, CAF, prime"><button type="button" class="btn push" id="qIncomeGo" style="width:100%;margin-top:10px">Enregistrer le revenu</button></div>
     <div class="actions"><button type="button" class="linkbtn" id="qMore">Plus de détails…</button></div>
   </div>
 </dialog>
@@ -1281,6 +1327,15 @@ img.av{object-fit:cover}
     <div class="field"><input class="inp" id="gpName" maxlength="40" placeholder="ex. Week-end à la mer" aria-label="Nom du groupe"></div>
     <div class="field"><label for="gpPeople">Participants (séparés par des virgules)</label><input class="inp" id="gpPeople" placeholder="ex. Léa, Tom, Julie, Marc"></div>
     <div class="actions" style="margin:0 0 12px"><button type="button" class="btn sm ghost" id="gpDel" hidden>Supprimer le groupe</button><button type="button" class="btn sm push" id="gpSave">Enregistrer le groupe</button></div>
+    <div class="field" id="gpLinkField" hidden>
+      <span class="lab">Lien pour des amis (sans compte)</span>
+      <p class="hint" style="margin:0 0 8px">Ils pourront voir le groupe et ajouter leur part, sans se connecter.</p>
+      <div id="gpLinkNone"><button type="button" class="btn sm" id="gpLinkGen">Générer un lien</button></div>
+      <div id="gpLinkOn" hidden>
+        <div class="erow"><input class="inp" id="gpLinkUrl" readonly aria-label="Lien de partage du groupe"><button type="button" class="btn sm ghost" id="gpLinkCopy">Copier</button></div>
+        <div class="actions" style="margin-top:8px"><button type="button" class="btn sm ghost" id="gpLinkRevoke">Révoquer</button><button type="button" class="btn sm ghost" id="gpLinkRegen">Régénérer</button></div>
+      </div>
+    </div>
     <div id="gpBody"></div>
   </div>
 </dialog>
@@ -1564,12 +1619,12 @@ document.getElementById("toastAct").addEventListener("click", async () => {
 /* ================= État ================= */
 const LISTS = ["expenses","recurring","reimbs","incomes","goals","shop","todos","projects","kids","accounts","debts","bilans",
   "journal","challenges","potmoves","groups","warranties","meters","wishes","meals","events","papers",
-  "trash","chores","inventory","health","cars","privates"];
+  "trash","chores","inventory","health","cars","privates","transfers"];
 const COLL = {expenses:"expenses", recurring:"recurrents", reimbs:"remboursements", incomes:"revenus", goals:"epargne", shop:"courses", todos:"factures",
   projects:"projets", kids:"argentdepoche", accounts:"comptes", debts:"dettes", bilans:"bilans",
   journal:"journal", challenges:"defis", potmoves:"cagnotte", groups:"groupes", warranties:"garanties", meters:"compteurs",
   wishes:"souhaits", meals:"repas", events:"evenements", papers:"papiers",
-  trash:"corbeille", chores:"menage", inventory:"placards", health:"sante", cars:"vehicules"};
+  trash:"corbeille", chores:"menage", inventory:"placards", health:"sante", cars:"vehicules", transfers:"virements"};
 const state = {
   mode:"loading", canWrite:true, uid:null,
   settings:{...DEFAULT_SETTINGS},
@@ -1578,7 +1633,7 @@ const state = {
   tab:pref.get("pc.tab", "budget"),
   query:"", flt:{who:"", cat:"", type:""}, searchYear:false,
   stats:{shop:{}}, calDay:null, chat:[],
-  sel:false, selIds:new Set(), mealWeek:0
+  sel:false, selIds:new Set(), mealWeek:0, listMode:"expenses"
 };
 LISTS.forEach(l => state[l] = []);
 const cap = {db:null, downloads:null, user:null};
@@ -1998,7 +2053,7 @@ function render(){
   $("#settingsBtn").disabled = !canEdit;
   $("#exportBtn").hidden = !(cap.downloads || state.mode === "local");
   $$("[data-edit]").forEach(b => b.disabled = !canEdit);
-  ["#addIncome","#addGoal","#addTodo","#addKid","#addProject","#addAccount","#addDebt","#addChal","#addGroup","#addWish","#addEvent","#addPaper","#addWarranty","#addMeter","#potAdd","#selToggle","#quickDesk","#addChore","#addHealth","#addInv","#addCar"].forEach(s => $(s).disabled = !canEdit);
+  ["#addIncome","#addGoal","#addTodo","#addKid","#addProject","#addAccount","#addTransfer","#addDebt","#addChal","#addGroup","#addWish","#addEvent","#addPaper","#addWarranty","#addMeter","#potAdd","#selToggle","#quickDesk","#addChore","#addHealth","#addInv","#addCar"].forEach(s => $(s).disabled = !canEdit);
   $("#quickFab").hidden = !canEdit || state.tab !== "budget";
   $("#hideBtn").setAttribute("aria-pressed", String(HIDE)); $("#hideBtn").innerHTML = I(HIDE ? "eye-off" : "eye");
 
@@ -2013,7 +2068,7 @@ function render(){
   if (state.tab === "analyse") renderAnalyse();
   if (state.tab === "courses") { renderShop(canEdit); renderMeals(canEdit); renderInv(canEdit); }
   if (state.tab === "projets") { renderGoals(canEdit); renderKids(canEdit); renderProjects(canEdit); renderChals(canEdit); renderGroups(canEdit); renderWishes(canEdit); renderBadges(); }
-  if (state.tab === "agenda") { renderCalendar(); renderTodos(canEdit); renderEvents(canEdit); renderPapers(canEdit); renderChores(canEdit); renderHealth(canEdit); }
+  if (state.tab === "agenda") { renderCalendar(); renderTodos(canEdit); renderEvents(canEdit); renderPapers(canEdit); renderChores(canEdit); renderHealth(canEdit); renderIcsField(); }
   if (state.tab === "patrimoine") { renderPatrimoine(canEdit); renderWarranties(canEdit); renderMeters(canEdit); renderCredSim(); renderCars(canEdit); }
   ["today","incomes","balances","fixed","journal"].forEach(id => { const el = document.querySelector(`[data-panel="${id}"]`); if (el) el.hidden = !panelOn(id); });
   $$("[data-panel]").forEach(el => { if (!panelOn(el.dataset.panel)) el.hidden = true; });
@@ -2136,10 +2191,37 @@ function fillFilters(){
   tg.innerHTML = `<option value="">Toutes étiquettes</option>` + tags.map(t => `<option value="${esc(t)}">#${esc(t)}</option>`).join("");
   tg.value = tags.includes(state.flt.tag) ? state.flt.tag : "";
 }
+function renderAllTransactions(period, ready){
+  const box = $("#list");
+  if (!ready) { box.innerHTML = `<div class="skel"></div>`.repeat(6); return; }
+  const accName = id => (state.accounts.find(a => a.id === id) || {}).name || "—";
+  const exp = inMonth(state.expenses, period).map(e => ({...e, _kind:"expense"}));
+  const inc = inMonth(state.incomes, period).map(e => ({...e, _kind:"income"}));
+  const trf = inMonth(state.transfers, period).map(e => ({...e, _kind:"transfer"}));
+  const q = state.query.trim().toLowerCase();
+  let all = exp.concat(inc, trf).sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0));
+  if (q) all = all.filter(e => ((e.label || "") + " " + (e.note || "")).toLowerCase().includes(q));
+  $("#count").textContent = all.length ? String(all.length) : "";
+  if (!all.length) { box.innerHTML = `<div class="empty">${I("wallet")}Aucune transaction ce mois-ci</div>`; return; }
+  let html = "", last = "";
+  all.forEach(e => {
+    if (e.date !== last) { if (last) html += "</ul>"; last = e.date; html += `<div class="day">${fmtDay(e.date, {weekday:"long", day:"numeric", month:"long"})}</div><ul class="rows">`; }
+    let icon, label, meta, amtTxt, amtClass;
+    if (e._kind === "expense") { const c = catOf(e.cat); icon = `<span class="ic" style="background:${c.color}1F;color:${c.color}">${I(c.ico || "tag")}</span>`; label = e.label || c.name; meta = c.name; amtTxt = "−" + fmt(e.amount); amtClass = ""; }
+    else if (e._kind === "income") { icon = `<span class="ic">${I("trending-up")}</span>`; label = e.label || "Revenu"; meta = "Revenu"; amtTxt = "+" + fmt(e.amount); amtClass = "down"; }
+    else { icon = `<span class="ic">${I("repeat")}</span>`; label = accName(e.fromAccount) + " → " + accName(e.toAccount); meta = "Virement" + (e.note ? " · " + e.note : ""); amtTxt = fmt(e.amount); amtClass = ""; }
+    html += `<li><button class="row" data-kind="${e._kind}" data-id="${esc(e.id)}">
+      ${icon}<span class="tx"><span class="lb">${esc(label)}</span><span class="meta">${esc(meta)}</span></span>
+      <span class="am ${amtClass}">${amtTxt}</span></button></li>`;
+  });
+  box.innerHTML = html + "</ul>";
+}
 function renderList(canEdit, ready){
   fillFilters();
   const period = state.searchYear ? state.month.slice(0, 4) : state.month;
-  $("#listTitle").textContent = state.searchYear ? "Dépenses de " + period : "Dépenses du mois";
+  $("#listTitle").textContent = (state.searchYear ? "Dépenses de " + period : "Dépenses du mois").replace("Dépenses", state.listMode === "all" ? "Transactions" : "Dépenses");
+  $("#selToggle").hidden = state.listMode === "all";
+  if (state.listMode === "all") return renderAllTransactions(period, ready);
   const all = inMonth(state.expenses, period).map(e => ({...e, _l:"expenses"}))
     .concat(inMonth(state.privates, period).map(e => ({...e, _l:"privates"})))
     .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0));
@@ -2499,6 +2581,9 @@ function openExpense(exp, list = "expenses", prefill = {}, onSaved = null){
   $("#fProjField").hidden = !projs.length;
   $("#fProj").innerHTML = `<option value="">Aucun</option>` + projs.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.exclude ? " (hors budget)" : ""}</option>`).join("");
   $("#fProj").value = projs.some(p => p.id === src.project) ? src.project : "";
+  $("#fAccField").hidden = !state.accounts.length;
+  $("#fAccount").innerHTML = `<option value="">Aucun compte</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  $("#fAccount").value = state.accounts.some(a => a.id === src.accountId) ? src.accountId : "";
   catTouched = !!(exp || src.cat);
   $("#favSave").hidden = !!exp;
   $("#dupBtn").hidden = !exp;
@@ -2578,7 +2663,7 @@ $("#expForm").addEventListener("submit", async ev => {
 
   if ($("#fPro").checked && !refund) refund = {amount:conv(orig), source:"Employeur", received:false, receivedDate:null};
   const tags = parseTags($("#fTags").value); if ($("#fPro").checked && !tags.includes("pro")) tags.push("pro");
-  const base = {sub:(!multi && val("subc")) || null, tags:tags.length ? tags : null, project:$("#fProj").value || null, label, cat, date, note:$("#fNote").value.trim().slice(0, 300) || null, deductible:$("#fDeduct").checked || null, refund,
+  const base = {sub:(!multi && val("subc")) || null, tags:tags.length ? tags : null, project:$("#fProj").value || null, accountId:$("#fAccount").value || null, label, cat, date, note:$("#fNote").value.trim().slice(0, 300) || null, deductible:$("#fDeduct").checked || null, refund,
     currency:cur !== BASE() ? cur : null, rate:cur !== BASE() ? rate : null, by:me() || null};
   if (!priv) Object.assign(base, {payer, split});
   const prevShares = ed.exp && (ed.exp.split === "all" || !ed.exp.split) ? ed.exp.shares : null;
@@ -2702,6 +2787,9 @@ function openIncome(inc){
   $("#iLabel").value = inc ? inc.label || "" : "";
   $("#iWho").innerHTML = radios("iwho", [{id:"", label:"Foyer"}].concat(members().map(m => ({id:m.id, label:esc(m.name)}))), inc ? inc.who || "" : (me() || ""));
   $("#iDate").value = inc ? inc.date : defDate();
+  $("#iAccField").hidden = !state.accounts.length;
+  $("#iAccount").innerHTML = `<option value="">Aucun compte</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  $("#iAccount").value = state.accounts.some(a => a.id === inc?.accountId) ? inc.accountId : "";
   $("#iRec").checked = false; $("#iRecField").hidden = !!inc;
   incDlg.showModal(); setTimeout(() => $("#iAmount").focus(), 60);
 }
@@ -2710,7 +2798,7 @@ $("#incForm").addEventListener("submit", async ev => {
   const amount = parseAmount($("#iAmount").value), date = $("#iDate").value;
   if (!Number.isFinite(amount) || amount <= 0) { $("#incErr").textContent = "Indiquez un montant supérieur à 0."; return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { $("#incErr").textContent = "Choisissez une date."; return; }
-  const item = {amount, label:$("#iLabel").value.trim().slice(0, 60), who:val("iwho") || "", date};
+  const item = {amount, label:$("#iLabel").value.trim().slice(0, 60), who:val("iwho") || "", date, accountId:$("#iAccount").value || null};
   try {
     if (incEd) await store.upsert("incomes", {...incEd, ...item});
     else if ($("#iRec").checked) {
@@ -2734,6 +2822,36 @@ $("#incDel").addEventListener("click", async () => {
     });
   } catch (e) { handleWriteError(e); }
 });
+
+/* ================= Virements entre comptes ================= */
+const trfDlg = $("#trfDlg"); let trfEd = null;
+function accountOptions(sel){
+  return state.accounts.map(a => `<option value="${esc(a.id)}" ${a.id === sel ? "selected" : ""}>${esc(a.name)}</option>`).join("");
+}
+function openTransfer(t){
+  trfEd = t || null;
+  $("#trfTitle").textContent = t ? "Modifier le virement" : "Nouveau virement";
+  $("#trfDel").hidden = !t; $("#trfErr").textContent = "";
+  $("#vFrom").innerHTML = accountOptions(t ? t.fromAccount : state.accounts[0]?.id);
+  $("#vTo").innerHTML = accountOptions(t ? t.toAccount : state.accounts[1]?.id);
+  $("#vAmount").value = t ? toInput(t.amount) : "";
+  $("#vDate").value = t ? t.date : defDate();
+  $("#vNote").value = t ? t.note || "" : "";
+  trfDlg.showModal(); setTimeout(() => $("#vAmount").focus(), 60);
+}
+$("#trfForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const amount = parseAmount($("#vAmount").value), date = $("#vDate").value, from = $("#vFrom").value, to = $("#vTo").value;
+  if (!Number.isFinite(amount) || amount <= 0) { $("#trfErr").textContent = "Indiquez un montant supérieur à 0."; return; }
+  if (!from || !to || from === to) { $("#trfErr").textContent = "Choisissez deux comptes différents."; return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { $("#trfErr").textContent = "Choisissez une date."; return; }
+  const item = {...(trfEd || {createdAt:Date.now()}), amount, date, fromAccount:from, toAccount:to, note:$("#vNote").value.trim().slice(0, 80) || null};
+  try {
+    await store.upsert("transfers", item);
+    trfDlg.close(); toast(trfEd ? "Virement modifié" : "Virement enregistré");
+  } catch (e) { handleWriteError(e); }
+});
+$("#trfDel").addEventListener("click", async () => { if (!trfEd) return; const t = trfEd; trfDlg.close(); try { await removeWithUndo("transfers", t, "Virement supprimé"); } catch (e) { handleWriteError(e); } });
 
 /* ================= Épargne ================= */
 const goalDlg = $("#goalDlg"); let goalEd = null;
@@ -2881,6 +2999,12 @@ $("#fixed").addEventListener("click", async e => {
 $("#incomes").addEventListener("click", e => { const b = e.target.closest("[data-inc]"); if (b) openIncome(state.incomes.find(i => i.id === b.dataset.inc)); });
 $("#list").addEventListener("click", e => {
   const b = e.target.closest(".row"); if (!b || swiped) return;
+  if (b.dataset.kind) {
+    if (b.dataset.kind === "income") { const inc = state.incomes.find(x => x.id === b.dataset.id); if (inc) openIncome(inc); }
+    else if (b.dataset.kind === "transfer") { const t = state.transfers.find(x => x.id === b.dataset.id); if (t) openTransfer(t); }
+    else { const exp = state.expenses.find(x => x.id === b.dataset.id); if (exp) openExpense(exp, "expenses"); }
+    return;
+  }
   if (state.sel) { const key = b.dataset.l + "|" + b.dataset.id; if (state.selIds.has(key)) state.selIds.delete(key); else state.selIds.add(key); render(); return; }
   const l = b.dataset.l, exp = state[l].find(x => x.id === b.dataset.id); if (exp) openExpense(exp, l);
 });
@@ -3183,6 +3307,15 @@ $("#calNext").addEventListener("click", () => { state.month = nextKey(state.mont
 
 /* ================= Patrimoine ================= */
 const ACC_TYPES = [{id:"courant", label:"Compte courant"}, {id:"epargne", label:"Épargne (livret, PEL…)"}, {id:"placement", label:"Placement (assurance-vie, PEA…)"}, {id:"autre", label:"Autre"}];
+function accountMovements(a){
+  const since = a.updatedAt || 0;
+  let sum = 0;
+  state.expenses.forEach(e => { if (e.accountId === a.id && (e.createdAt || 0) >= since) sum -= (e.amount || 0); });
+  state.incomes.forEach(e => { if (e.accountId === a.id && (e.createdAt || 0) >= since) sum += (e.amount || 0); });
+  state.transfers.forEach(t => { if ((t.createdAt || 0) < since) return; if (t.fromAccount === a.id) sum -= (t.amount || 0); if (t.toAccount === a.id) sum += (t.amount || 0); });
+  return sum;
+}
+const accountBalance = a => (a.balance || 0) + accountMovements(a);
 function debtInfo(d){
   const r = (d.rate || 0) / 100 / 12, B = d.remaining || 0, P = d.monthly || 0;
   let n = Infinity;
@@ -3193,13 +3326,18 @@ function debtInfo(d){
 }
 function renderPatrimoine(canEdit){
   const accs = state.accounts.slice().sort((a, b) => ACC_TYPES.findIndex(t => t.id === a.type) - ACC_TYPES.findIndex(t => t.id === b.type));
-  const sumT = t => accs.filter(a => t.includes(a.type)).reduce((s, a) => s + (a.balance || 0), 0);
+  const sumT = t => accs.filter(a => t.includes(a.type)).reduce((s, a) => s + accountBalance(a), 0);
   const totalAcc = sumT(["courant","epargne","placement","autre"]);
-  $("#accounts").innerHTML = accs.length ? `<ul class="items">` + accs.map(a => `<li><span class="ic">${I(a.type === "courant" ? "credit-card" : a.type === "epargne" ? "piggy-bank" : a.type === "placement" ? "trending-up" : "landmark")}</span>
-      <span class="tx">${esc(a.name)}<span>${esc((ACC_TYPES.find(t => t.id === a.type) || {}).label || "")} · mis à jour le ${fmtDay(dstr(new Date(a.updatedAt || Date.now())))}</span></span>
-      <b class="${a.balance < 0 ? "over" : ""}">${fmt(a.balance)}</b>${canEdit ? `<button class="x" data-accedit="${esc(a.id)}" aria-label="Mettre à jour ${esc(a.name)}">${I("pencil")}</button>` : ""}</li>`).join("") +
+  $("#accounts").innerHTML = accs.length ? `<ul class="items">` + accs.map(a => { const bal = accountBalance(a), mv = accountMovements(a); return `<li><span class="ic">${I(a.type === "courant" ? "credit-card" : a.type === "epargne" ? "piggy-bank" : a.type === "placement" ? "trending-up" : "landmark")}</span>
+      <span class="tx">${esc(a.name)}<span>${esc((ACC_TYPES.find(t => t.id === a.type) || {}).label || "")} · pointé le ${fmtDay(dstr(new Date(a.updatedAt || Date.now())))}${mv ? ` · ${mv > 0 ? "+" : ""}${fmt(mv)} depuis` : ""}</span></span>
+      <b class="${bal < 0 ? "over" : ""}">${fmt(bal)}</b>${canEdit ? `<button class="x" data-accedit="${esc(a.id)}" aria-label="Mettre à jour ${esc(a.name)}">${I("pencil")}</button>` : ""}</li>`; }).join("") +
     `</ul><div class="kpis" style="margin:12px 0 0"><div class="kpi"><span>Comptes courants</span><b>${fmt(sumT(["courant"]))}</b></div><div class="kpi"><span>Épargne</span><b>${fmt(sumT(["epargne","placement"]))}</b></div><div class="kpi"><span>Total</span><b>${fmt(totalAcc)}</b></div></div>`
     : `<div class="empty">${I("landmark")}Aucun compte</div>`;
+  const accName = id => (state.accounts.find(a => a.id === id) || {}).name || "—";
+  const trf = state.transfers.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
+  $("#transfers").innerHTML = trf.length ? `<h3>Virements récents</h3><ul class="items">` + trf.map(t => `<li><span class="ic">${I("repeat")}</span>
+      <span class="tx">${esc(accName(t.fromAccount))} → ${esc(accName(t.toAccount))}<span>${fmtDay(t.date)}${t.note ? " · " + esc(t.note) : ""}</span></span>
+      <b>${fmt(t.amount)}</b>${canEdit ? `<button class="x" data-trfedit="${esc(t.id)}" aria-label="Modifier ce virement">${I("pencil")}</button>` : ""}</li>`).join("") + `</ul>` : "";
 
   const debts = state.debts.slice().sort((a, b) => (b.remaining || 0) - (a.remaining || 0));
   const totalDebt = debts.reduce((s, d) => s + (d.remaining || 0), 0);
@@ -3252,6 +3390,7 @@ $("#accForm").addEventListener("submit", async ev => {
 });
 $("#accDel").addEventListener("click", async () => { if (!accEd) return; try { const a = accEd; accDlg.close(); await removeWithUndo("accounts", a, "Compte supprimé"); } catch (e) { handleWriteError(e); } });
 $("#accounts").addEventListener("click", e => { const b = e.target.closest("[data-accedit]"); if (b) openAccount(state.accounts.find(a => a.id === b.dataset.accedit)); });
+$("#transfers").addEventListener("click", e => { const b = e.target.closest("[data-trfedit]"); if (b) openTransfer(state.transfers.find(t => t.id === b.dataset.trfedit)); });
 const debtDlg = $("#debtDlg"); let debtEd = null;
 function openDebt(d){
   debtEd = d || null;
@@ -3545,6 +3684,12 @@ function renderJournal(){
 /* ================= Sélection multiple ================= */
 function exitSel(){ state.sel = false; state.selIds.clear(); render(); }
 $("#selToggle").addEventListener("click", () => { state.sel = !state.sel; state.selIds.clear(); render(); });
+$("#listMode").addEventListener("click", e => {
+  const b = e.target.closest("[data-lm]"); if (!b) return;
+  state.listMode = b.dataset.lm;
+  $$("#listMode button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  render();
+});
 $("#selClose").addEventListener("click", exitSel);
 $("#selAll").addEventListener("click", () => {
   const keys = state.shownKeys || [];
@@ -3607,16 +3752,29 @@ function topCats(){
   ["courses","loisirs","transport","sante","enfants","autre"].forEach(id => { if (!ranked.includes(id)) ranked.push(id); });
   return ranked.slice(0, 6).map(catOf);
 }
+let qKind = "expense";
 function renderQuick(){
   const v = qBuf ? parseFloat(qBuf.replace(",", ".")) : 0;
   $("#qAmt").textContent = qBuf ? qBuf.replace(".", ",") + " €" : "0 €";
   $$("#qCats button").forEach(b => b.disabled = !(v > 0));
+  $("#qIncomeGo").disabled = !(v > 0);
+}
+function setQKind(k){
+  qKind = k;
+  $$("#qKind button").forEach(b => b.setAttribute("aria-pressed", b.dataset.qk === k ? "true" : "false"));
+  $("#qCats").hidden = k !== "expense";
+  $("#qIncomeField").hidden = k !== "income";
+  $("#qHint").textContent = k === "income" ? "Montant, puis Enregistrer" : `Montant, puis catégorie${me() ? " · " + memberName(me()) : ""} · aujourd'hui`;
 }
 function openQuick(){
   qBuf = "";
   $("#qPad").innerHTML = ["1","2","3","4","5","6","7","8","9",",","0","⌫"].map(k => `<button type="button" data-q="${k}" aria-label="${k === "⌫" ? "Effacer" : k}">${k === "⌫" ? I("delete") : k}</button>`).join("");
+  $("#qKind").innerHTML = `<button type="button" class="chip" data-qk="expense">− Dépense</button><button type="button" class="chip" data-qk="income">+ Revenu</button><button type="button" class="chip" data-qk="transfer">⇄ Virement</button>`;
   $("#qCats").innerHTML = topCats().map(c => `<button type="button" data-qc="${esc(c.id)}" style="background:${c.color}">${I(c.ico || "tag")}${esc(c.name)}</button>`).join("");
-  $("#qHint").textContent = `Montant, puis catégorie${me() ? " · " + memberName(me()) : ""} · aujourd'hui`;
+  $("#qIncomeLabel").value = "";
+  $("#qAccField").hidden = !state.accounts.length;
+  $("#qAccount").innerHTML = `<option value="">Aucun compte</option>` + state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  setQKind("expense");
   renderQuick(); quickDlg.showModal();
 }
 $("#qPad").addEventListener("click", e => {
@@ -3630,19 +3788,35 @@ document.addEventListener("keydown", e => {
   if (!quickDlg.open) return;
   if (/^\d$/.test(e.key)) $(`#qPad [data-q="${e.key}"]`).click(); else if (e.key === "," || e.key === ".") $('#qPad [data-q=","]').click(); else if (e.key === "Backspace") $('#qPad [data-q="⌫"]').click();
 });
+$("#qKind").addEventListener("click", e => {
+  const b = e.target.closest("[data-qk]"); if (!b) return;
+  if (b.dataset.qk === "transfer") { const v = qBuf ? Math.round(parseFloat(qBuf.replace(",", ".")) * 100) : 0; quickDlg.close(); openTransfer(v > 0 ? {amount:v, date:todayStr()} : null); return; }
+  setQKind(b.dataset.qk);
+});
 $("#qCats").addEventListener("click", async e => {
   const b = e.target.closest("[data-qc]"); if (!b) return;
   const amount = Math.round(parseFloat(qBuf.replace(",", ".")) * 100); if (!(amount > 0)) return;
   const c = catOf(b.dataset.qc), payer = me() || members()[0]?.id || "";
   try {
-    const id = await store.upsert("expenses", {amount, label:c.name, cat:c.id, payer, split:"all", shares:currentWeights(), date:todayStr(), by:me() || null, createdAt:Date.now()});
+    const id = await store.upsert("expenses", {amount, label:c.name, cat:c.id, payer, split:"all", shares:currentWeights(), accountId:$("#qAccount").value || null, date:todayStr(), by:me() || null, createdAt:Date.now()});
     quickDlg.close(); logAct(`a ajouté « ${c.name} » (${fmt(amount)})`);
     toast(`${fmt(amount)} en ${c.name} enregistré`, "Annuler", () => store.remove("expenses", id));
   } catch (err) { handleWriteError(err); }
 });
+$("#qIncomeGo").addEventListener("click", async () => {
+  const amount = qBuf ? Math.round(parseFloat(qBuf.replace(",", ".")) * 100) : 0; if (!(amount > 0)) return;
+  const label = $("#qIncomeLabel").value.trim().slice(0, 60) || "Revenu rapide";
+  try {
+    const id = await store.upsert("incomes", {amount, label, who:me() || "", accountId:$("#qAccount").value || null, date:todayStr(), createdAt:Date.now()});
+    quickDlg.close(); logAct(`a ajouté le revenu « ${label} » (${fmt(amount)})`);
+    toast(`${fmt(amount)} de revenu enregistré`, "Annuler", () => store.remove("incomes", id));
+  } catch (err) { handleWriteError(err); }
+});
 $("#qMore").addEventListener("click", () => {
   const v = qBuf ? Math.round(parseFloat(qBuf.replace(",", ".")) * 100) : 0;
-  quickDlg.close(); openExpense(null, "expenses", v > 0 ? {amount:v, date:todayStr()} : {});
+  quickDlg.close();
+  if (qKind === "income") { openIncome(null); if (v > 0) $("#iAmount").value = toInput(v); }
+  else openExpense(null, "expenses", v > 0 ? {amount:v, date:todayStr()} : {});
 });
 $("#quickFab").addEventListener("click", openQuick);
 $("#quickDesk").addEventListener("click", openQuick);
@@ -3738,8 +3912,67 @@ function openGroup(id){
   $("#grpTitle").textContent = g ? g.name : "Nouveau groupe";
   $("#gpName").value = g ? g.name : "";
   $("#gpPeople").value = g ? g.people.map(p => p.name).join(", ") : members().map(m => m.name).join(", ");
-  $("#gpDel").hidden = !g; renderGroupBody(); grpDlg.showModal();
+  $("#gpDel").hidden = !g; renderGroupBody(); renderGroupLink(); grpDlg.showModal();
 }
+async function renderGroupLink(){
+  const show = !!(grpId && state.mode === "shared");
+  $("#gpLinkField").hidden = !show;
+  if (!show) return;
+  try {
+    const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/groups/${encodeURIComponent(grpId)}/link`);
+    $("#gpLinkNone").hidden = !!r.token; $("#gpLinkOn").hidden = !r.token;
+    if (r.token) $("#gpLinkUrl").value = r.url;
+  } catch {}
+}
+async function rotateGroupLink(){
+  try {
+    const r = await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/groups/${encodeURIComponent(grpId)}/link/rotate`);
+    $("#gpLinkNone").hidden = true; $("#gpLinkOn").hidden = false; $("#gpLinkUrl").value = r.url;
+    toast("Lien généré");
+  } catch (e) { toast(e.message); }
+}
+$("#gpLinkGen").addEventListener("click", rotateGroupLink);
+$("#gpLinkRegen").addEventListener("click", rotateGroupLink);
+$("#gpLinkRevoke").addEventListener("click", async () => {
+  if (!confirm("Révoquer ce lien ? Il ne fonctionnera plus pour vos amis.")) return;
+  try {
+    await api("DELETE", `/api/h/${encodeURIComponent(SV.hh.id)}/groups/${encodeURIComponent(grpId)}/link`);
+    $("#gpLinkNone").hidden = false; $("#gpLinkOn").hidden = true;
+    toast("Lien révoqué");
+  } catch (e) { toast(e.message); }
+});
+$("#gpLinkCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("#gpLinkUrl").value); toast("Lien copié"); }
+  catch { $("#gpLinkUrl").select(); toast("Sélectionnez et copiez avec Ctrl+C"); }
+});
+
+/* ================= Agenda : lien ICS ================= */
+let icsLoaded = false;
+async function renderIcsField(){
+  const show = state.mode === "shared" && typeof SV !== "undefined" && SV.hh;
+  $("#icsField").hidden = !show;
+  if (!show || icsLoaded) return;
+  icsLoaded = true;
+  try {
+    const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/ics-token`);
+    $("#icsNone").hidden = !!r.url; $("#icsOn").hidden = !r.url;
+    if (r.url) $("#icsUrl").value = r.url;
+  } catch { icsLoaded = false; }
+}
+$("#icsGen").addEventListener("click", async () => {
+  try { const r = await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/ics-token`); $("#icsNone").hidden = true; $("#icsOn").hidden = false; $("#icsUrl").value = r.url; toast("Lien généré"); }
+  catch (e) { toast(e.message); }
+});
+$("#icsCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("#icsUrl").value); toast("Lien copié"); }
+  catch { $("#icsUrl").select(); toast("Sélectionnez et copiez avec Ctrl+C"); }
+});
+$("#icsRevoke").addEventListener("click", async () => {
+  if (!confirm("Révoquer ce lien ? Les calendriers abonnés ne se mettront plus à jour.")) return;
+  try { await api("DELETE", `/api/h/${encodeURIComponent(SV.hh.id)}/ics-token`); $("#icsNone").hidden = false; $("#icsOn").hidden = true; toast("Lien révoqué"); }
+  catch (e) { toast(e.message); }
+});
+
 function renderGroupBody(){
   const g = grpId && state.groups.find(x => x.id === grpId), box = $("#gpBody");
   if (!g) { box.innerHTML = `<p class="muted small">Enregistrez le groupe pour ajouter des dépenses.</p>`; return; }
@@ -3762,7 +3995,7 @@ $("#gpSave").addEventListener("click", async () => {
   const people = names.map(n => (g && g.people.find(p => p.name.toLowerCase() === n.toLowerCase())) || {id:uid().slice(0, 8), name:n.slice(0, 30)});
   try {
     const id = await store.upsert("groups", {...(g || {items:[], createdAt:Date.now()}), name:name.slice(0, 40),  people});
-    grpId = id; $("#grpTitle").textContent = name; $("#gpDel").hidden = false; setTimeout(renderGroupBody, 50); toast("Groupe enregistré");
+    grpId = id; $("#grpTitle").textContent = name; $("#gpDel").hidden = false; setTimeout(renderGroupBody, 50); renderGroupLink(); toast("Groupe enregistré");
   } catch (e) { handleWriteError(e); }
 });
 $("#gpDel").addEventListener("click", async () => {
@@ -4678,13 +4911,13 @@ document.addEventListener("keydown", e => {
   const tag = (e.target.tagName || "").toLowerCase();
   if (["input","textarea","select"].includes(tag) || e.target.isContentEditable || $$("dialog").some(d => d.open) || !$("#lock").hidden) return;
   const k = e.key;
-  if (k === "n" || k === "N") { e.preventDefault(); if (state.canWrite) openExpense(null); }
+  if (k === "n" || k === "N") { e.preventDefault(); if (state.canWrite) openKindChooser(); }
   else if (k === "e" || k === "E") { e.preventDefault(); if (state.canWrite) openQuick(); }
   else if (k === "/") { e.preventDefault(); openSearch(); }
   else if (k === "ArrowLeft") { state.month = prevKey(state.month); render(); }
   else if (k === "ArrowRight") { state.month = nextKey(state.month); render(); }
   else if (/^[1-6]$/.test(k)) { const t = tabCfg().filter(x => x.on || x.id === "budget")[+k - 1]; if (t) { state.tab = t.id; pref.set("pc.tab", t.id); render(); } }
-  else if (k === "?") toast("N : dépense · E : éclair · / : recherche · flèches : mois · 1-6 : onglets");
+  else if (k === "?") toast("N : transaction · E : éclair · / : recherche · flèches : mois · 1-6 : onglets");
 });
 
 /* ================= Réglages v6 ================= */
@@ -5146,6 +5379,47 @@ function viewMfa(){
   formHandler("#fMfa", async v => { await api("POST", "/api/auth/mfa", v); await afterLogin(true); });
   bindLinks({goOut:async () => { await api("POST", "/api/auth/logout").catch(() => {}); viewLogin(); }});
 }
+async function viewPublicGroup(token){
+  authShow(`<p class="sub">Chargement…</p>`);
+  let g;
+  try { g = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); }
+  catch (e) { authShow(`<h1>Lien introuvable</h1><p class="sub">${esc(e.message || "Ce lien n'est plus valable.")}</p>`); return; }
+  renderPublicGroup(token, g);
+}
+function renderPublicGroup(token, g){
+  const myName = pref.get("pc.pubname", "");
+  const bal = groupBalances(g), tr = settlements(bal);
+  const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
+  const items = (g.items || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  authShow(`<h1>${esc(g.name)}</h1><p class="sub">Ajoutez votre part, sans compte.</p>
+    <h3>Qui doit quoi</h3>${tr.length ? `<div class="settle">${tr.map(t => `<div class="s"><p>${esc(pn(t.from))} doit <b>${fmt(t.amount)}</b> à ${esc(pn(t.to))}</p></div>`).join("")}</div>` : `<p class="sub">Tout le monde est à l'équilibre.</p>`}
+    <div class="people" style="margin:10px 0">${g.people.map(p => `<div class="person"><span>${esc(p.name)}</span><span class="${bal[p.id] < -0.5 ? "over" : bal[p.id] > 0.5 ? "down" : "muted"}">${bal[p.id] >= 0 ? "+" : "−"}${fmt(Math.abs(bal[p.id]))}</span></div>`).join("")}</div>
+    <h3>Dépenses (${items.length})</h3>${items.length ? `<ul class="items">${items.map(it => `<li><span class="tx">${esc(it.label || "Dépense")}<span>${fmtDay(it.date)} · payé par ${esc(pn(it.payer))}</span></span><b>${fmt(it.amount)}</b></li>`).join("")}</ul>` : `<p class="sub">Aucune dépense pour l'instant.</p>`}
+    <h3>Ajouter une dépense</h3>
+    <form id="fPubAdd" novalidate>
+      ${field("pname", "Votre nom")}
+      ${field("plabel", "Libellé")}
+      ${field("pamt", "Montant (€)", "text", 'inputmode="decimal" placeholder="0,00"')}
+      <p class="err" id="pubErr"></p>
+      <button class="btn" type="submit">Ajouter</button>
+    </form>`);
+  $("#a_pname").value = myName;
+  $("#fPubAdd").addEventListener("submit", async e => {
+    e.preventDefault();
+    const name = $("#a_pname").value.trim().slice(0, 30), label = $("#a_plabel").value.trim().slice(0, 80), amt = parseAmount($("#a_pamt").value);
+    if (!name) { $("#pubErr").textContent = "Indiquez votre nom."; return; }
+    if (!label) { $("#pubErr").textContent = "Indiquez un libellé."; return; }
+    if (!Number.isFinite(amt) || amt <= 0) { $("#pubErr").textContent = "Indiquez un montant."; return; }
+    pref.set("pc.pubname", name);
+    const existing = g.people.find(p => p.name.toLowerCase() === name.toLowerCase());
+    try {
+      await api("POST", `/api/public/group/${encodeURIComponent(token)}/item`, {label, amount:amt, payerId:existing ? existing.id : null, payerName:existing ? null : name});
+      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`);
+      renderPublicGroup(token, fresh);
+      toast("Dépense ajoutée");
+    } catch (err) { $("#pubErr").textContent = err.message || "Erreur."; }
+  });
+}
 async function viewInvite(token){
   let info; try { info = await api("GET", "/api/invites/" + encodeURIComponent(token)); } catch { info = {valid:false}; }
   if (!info.valid) { clearParams(); return SV.me ? viewHouseholds("Cette invitation n'est plus valable.") : viewLogin("Cette invitation n'est plus valable."); }
@@ -5350,7 +5624,8 @@ if (SRV) {
     }
   };
   (async () => {
-    const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite");
+    const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite"), grp = params.get("groupe");
+    if (grp) return viewPublicGroup(grp);
     if (reset) return viewReset(reset);
     try {
       const r = await api("GET", "/api/me");
@@ -5588,8 +5863,13 @@ $("#pdfYear").addEventListener("click", async () => { try { await pdfYear(); } c
 /* ================= Événements généraux ================= */
 $$("[data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
 $$("dialog").forEach(d => d.addEventListener("click", e => { if (e.target === d) d.close(); }));
-$("#fab").addEventListener("click", () => openExpense(null));
-$("#addDesk").addEventListener("click", () => openExpense(null));
+const kindDlg = $("#kindDlg");
+function openKindChooser(){ kindDlg.showModal(); }
+$("#kExp").addEventListener("click", () => { kindDlg.close(); openExpense(null); });
+$("#kInc").addEventListener("click", () => { kindDlg.close(); openIncome(null); });
+$("#kTrf").addEventListener("click", () => { kindDlg.close(); if (state.accounts.length < 2) { toast("Il faut au moins deux comptes pour faire un virement"); return; } openTransfer(null); });
+$("#fab").addEventListener("click", openKindChooser);
+$("#addDesk").addEventListener("click", openKindChooser);
 $("#settingsBtn").addEventListener("click", openSettings);
 $("#addIncome").addEventListener("click", () => openIncome(null));
 $("#addGoal").addEventListener("click", () => openGoal(null));
@@ -5606,6 +5886,7 @@ $("#searchYear").addEventListener("change", e => { state.searchYear = e.target.c
 $("#addKid").addEventListener("click", () => openKid(null));
 $("#addProject").addEventListener("click", () => openProject(null));
 $("#addAccount").addEventListener("click", () => openAccount(null));
+$("#addTransfer").addEventListener("click", () => { if (state.accounts.length < 2) { toast("Il faut au moins deux comptes pour faire un virement"); return; } openTransfer(null); });
 $("#addDebt").addEventListener("click", () => openDebt(null));
 $("#fltWho").addEventListener("change", e => { state.flt.who = e.target.value; render(); });
 $("#fltCat").addEventListener("change", e => { state.flt.cat = e.target.value; render(); });

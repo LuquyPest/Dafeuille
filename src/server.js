@@ -581,6 +581,10 @@ function buildIcs(householdName, events, todos) {
   lines.push("END:VCALENDAR");
   return lines.join("\r\n");
 }
+app.get("/api/h/:hid/ics-token", requireUser, member, h(async (req, res) => {
+  const r = (await q("SELECT ics_token FROM households WHERE id = $1", [req.params.hid])).rows[0];
+  res.json({ url: r && r.ics_token ? `${CFG.appUrl}/api/ics/${r.ics_token}` : null });
+}));
 app.post("/api/h/:hid/ics-token", requireUser, member, h(async (req, res) => {
   const token = newToken();
   await q("UPDATE households SET ics_token = $2 WHERE id = $1", [req.params.hid, token]);
