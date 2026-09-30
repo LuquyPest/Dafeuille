@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON users (lower(email));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banner text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio    text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS sessions (
   id          text PRIMARY KEY,                 -- empreinte SHA-256 du jeton
@@ -42,6 +45,8 @@ CREATE TABLE IF NOT EXISTS households (
   created_by  text REFERENCES users(id) ON DELETE SET NULL,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE households ADD COLUMN IF NOT EXISTS xp     integer NOT NULL DEFAULT 0;
+ALTER TABLE households ADD COLUMN IF NOT EXISTS badges jsonb   NOT NULL DEFAULT '[]';
 
 CREATE TABLE IF NOT EXISTS memberships (
   household_id text NOT NULL REFERENCES households(id) ON DELETE CASCADE,

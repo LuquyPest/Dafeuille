@@ -74,7 +74,7 @@ button{cursor:pointer}
 .i{width:1.15em;height:1.15em;flex:none;vertical-align:-.2em}
 .num,.total,.kpi b,.am,.bigval,table.t{font-variant-numeric:tabular-nums}
 .wrap{max-width:1200px;margin:0 auto;padding:18px 18px 170px}
-@media (min-width:880px){.wrap{padding:24px 28px 60px}}
+@media (min-width:880px){.wrap{max-width:1560px;margin:0 0 0 272px;padding:28px 32px 60px}}
 
 /* ---------- En-tête ---------- */
 header.top{display:flex;align-items:center;gap:8px;padding:2px 0 18px}
@@ -89,6 +89,13 @@ header.top{display:flex;align-items:center;gap:8px;padding:2px 0 18px}
 .iconbtn[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
 .btn.addbtn-desk,.btn.quickdesk{display:none}
 @media (max-width:520px){ header.top{gap:6px} header.top .iconbtn{width:36px;height:36px;border-radius:11px} .brand .logo{width:34px;height:34px} }
+@media (min-width:880px){
+  header.top{position:fixed;left:0;top:0;width:272px;height:236px;z-index:5;display:grid;grid-template-columns:repeat(4,1fr);
+    align-content:start;gap:9px;padding:22px 18px;background:var(--surface);border-right:1px solid var(--line)}
+  header.top .brand{grid-column:1/-1;margin:0 0 4px}
+  header.top .brand small{max-width:100%}
+  header.top .btn.addbtn-desk,header.top .btn.quickdesk{grid-column:1/-1;width:100%}
+}
 
 /* ---------- Navigation ---------- */
 nav.tabs{display:flex;gap:4px;background:var(--surface);border-radius:16px;padding:5px;margin-bottom:20px;box-shadow:var(--sh)}
@@ -102,13 +109,24 @@ nav.tabs .badge{position:absolute;top:3px;right:calc(50% - 22px);background:var(
     background:color-mix(in srgb, var(--surface) 82%, transparent);-webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);box-shadow:var(--sh-lg);border:1px solid var(--line)}
   nav.tabs button{padding:7px 2px;font-size:.66rem}
 }
+#acctChip{display:none;position:fixed;left:0;bottom:0;width:272px;height:80px;z-index:5;align-items:center;gap:10px;
+  padding:0 16px;background:var(--surface);border-right:1px solid var(--line);border-top:1px solid var(--line);
+  text-align:left;border-radius:0}
+#acctChip .av{width:38px;height:38px;font-size:.9rem;margin:0}
+#acctChip .who{flex:1;min-width:0}
+#acctChip .who b{display:block;font-size:.86rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#acctChip .who span{display:block;font-size:.74rem;color:var(--muted)}
+#acctChip:hover{background:var(--surface-2)}
 @media (min-width:880px){
-  nav.tabs{display:inline-flex;margin-bottom:22px}
-  nav.tabs button{flex:none;flex-direction:row;gap:8px;font-size:.9rem;padding:9px 16px}
-  nav.tabs button .i{width:18px;height:18px}
+  nav.tabs{position:fixed;left:0;top:236px;bottom:80px;width:272px;z-index:5;margin:0;border-radius:0;box-shadow:none;
+    background:var(--surface);border-right:1px solid var(--line);flex-direction:column;align-items:stretch;gap:2px;
+    padding:12px;overflow-y:auto}
+  nav.tabs button{flex:none;flex-direction:row;justify-content:flex-start;gap:12px;font-size:.92rem;padding:11px 14px;border-radius:12px}
+  nav.tabs button .i{width:19px;height:19px}
   .btn.addbtn-desk,.btn.quickdesk{display:inline-flex}
   body .fab,body .fab2{display:none}
-  nav.tabs .badge{top:2px;right:4px}
+  nav.tabs .badge{position:static;margin-left:auto;border:0}
+  #acctChip{display:flex}
 }
 
 /* ---------- Mise en page ---------- */
@@ -403,6 +421,21 @@ details.more[open] summary{margin-bottom:12px}
 .badge-it .tile{margin:0 auto 6px;width:40px;height:40px;border-radius:13px}
 .badge-it b{font-weight:600}
 .badge-it.off{opacity:.4;filter:grayscale(1)}
+.badge-it .xp{display:block;color:var(--accent);font-weight:700;font-size:.68rem;margin-top:2px}
+.badge-it.off .xp{color:var(--muted)}
+
+/* ---------- Profil ---------- */
+.pf-banner{position:relative;height:150px;background:linear-gradient(135deg,var(--accent),var(--accent-2));background-size:cover;background-position:center;border-radius:26px 26px 0 0}
+@media (min-width:640px){.pf-banner{border-radius:24px 24px 0 0}}
+.pf-edit{position:absolute;box-shadow:var(--sh-lg)}
+#pfBannerBtn{top:12px;right:56px}
+.pf-av-wrap{position:absolute;left:20px;bottom:-38px}
+.pf-av{width:84px;height:84px;border-radius:50%;font-size:1.6rem;border:4px solid var(--surface);box-shadow:var(--sh)}
+.pf-av-edit{position:absolute;right:-4px;bottom:-4px;width:32px;height:32px}
+.pf-av-edit .i{width:15px;height:15px}
+.pf-level .bar{height:10px}
+#acctChip .av,.pf-av{overflow:hidden}
+#acctChip .av img,.pf-av img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .simrow{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:.9rem}
 .simrow span{flex:1;min-width:0;display:flex;align-items:center;gap:6px}
 .simrow .inp{flex:0 0 100px;padding:6px 8px}
@@ -474,6 +507,12 @@ img.av{object-fit:cover}
     <button role="tab" data-tab="agenda" aria-selected="false"><i data-i="calendar"></i>Agenda<span class="badge" id="bTodo" hidden></span></button>
     <button role="tab" data-tab="patrimoine" aria-selected="false"><i data-i="landmark"></i>Patrimoine</button>
   </nav>
+
+  <button type="button" id="acctChip" aria-label="Mon profil">
+    <span class="av" id="acctAv" aria-hidden="true"></span>
+    <span class="who"><b id="acctName">Mon profil</b><span id="acctLevel">Niveau 1</span></span>
+    <i data-i="chevron-right" class="i" style="width:16px;height:16px;color:var(--muted)"></i>
+  </button>
 
   <!-- ============ BUDGET ============ -->
   <section data-view="budget">
@@ -1051,6 +1090,46 @@ img.av{object-fit:cover}
     <p class="err" id="setErr" role="alert"></p>
     <div class="actions"><button type="submit" class="btn push">Enregistrer les réglages</button></div>
   </form>
+</dialog>
+
+<!-- ============ Profil ============ -->
+<dialog id="profileDlg" aria-labelledby="pfTitle">
+  <div class="sheet" style="padding:0 0 20px">
+    <div class="pf-banner" id="pfBanner">
+      <button type="button" class="iconbtn pf-edit" id="pfBannerBtn" title="Changer la bannière" aria-label="Changer la bannière"><i data-i="camera"></i></button>
+      <input type="file" accept="image/*" id="pfBannerFile" hidden>
+      <button type="button" class="iconbtn" id="pfCloseBtn" data-close title="Fermer" aria-label="Fermer" style="position:absolute;top:12px;right:12px"><i data-i="x"></i></button>
+      <div class="pf-av-wrap">
+        <span class="av pf-av" id="pfAvatar" aria-hidden="true"></span>
+        <button type="button" class="iconbtn pf-edit pf-av-edit" id="pfAvatarBtn" title="Changer la photo" aria-label="Changer la photo"><i data-i="camera"></i></button>
+        <input type="file" accept="image/*" id="pfAvatarFile" hidden>
+      </div>
+    </div>
+    <div style="padding:52px 20px 0">
+      <h2 id="pfTitle" style="margin-bottom:2px"><span id="pfName">…</span></h2>
+      <p class="muted small" id="pfEmail" style="margin:0 0 16px"></p>
+
+      <div class="pf-level">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">
+          <b id="pfLevelName">Niveau 1</b>
+          <span class="muted small" id="pfXpText">0 XP</span>
+        </div>
+        <div class="bar"><span id="pfBar" style="background:var(--accent);width:0%"></span></div>
+      </div>
+
+      <form id="pfBioForm">
+        <div class="field" style="margin-top:18px">
+          <label for="pfBio">Bio</label>
+          <textarea class="inp" id="pfBio" rows="3" maxlength="280" placeholder="Dites-en un peu plus sur vous…"></textarea>
+          <p class="muted small" style="text-align:right;margin:4px 0 0" id="pfBioCount">0 / 280</p>
+        </div>
+        <div class="actions"><button type="submit" class="btn push" id="pfSaveBio">Enregistrer</button></div>
+      </form>
+
+      <h3>Badges</h3>
+      <div class="badges" id="pfBadges"></div>
+    </div>
+  </div>
 </dialog>
 
 <!-- ============ Projet ============ -->
@@ -4450,39 +4529,94 @@ $("#cars").addEventListener("click", async e => {
 });
 $("#addCar").addEventListener("click", () => openCar(null));
 
-/* ================= Badges ================= */
+/* ================= Badges & XP ================= */
 function badgeList(){
   const nowK = curKey(), b = state.settings.budget || 0, E = state.expenses;
   const monthsUnder = (() => { let n = 0, best = 0, k = prevKey(nowK); for (let i = 0; i < 24; i++) { const l = inMonth(E, k).filter(bud); if (b && l.length && totalOf(l) <= b) { n++; best = Math.max(best, n); } else n = 0; k = prevKey(k); } return best; })();
   const saveStreak = (() => { let n = 0, best = 0, k = prevKey(nowK); for (let i = 0; i < 24; i++) { if (savedIn(k) > 0) { n++; best = Math.max(best, n); } else n = 0; k = prevKey(k); } return best; })();
   const noSpendWeek = (() => { const days = new Set(E.filter(e => !e.recurringId).map(e => e.date)); if (!days.size) return false; const d = new Date(); let run = 0; for (let i = 0; i < 365; i++) { if (days.has(dstr(d))) run = 0; else if (++run >= 7) return true; d.setDate(d.getDate() - 1); } return false; })();
+  const chalDone = c => { const r = chalEval(c); return r.done && (c.kind === "max" ? r.ok : r.koN === 0); };
+  const fillups = state.cars.reduce((s, c) => s + (c.entries || []).filter(e => e.kind === "plein").length, 0);
   return [
-    ["sprout", "Premier pas", "Enregistrer une dépense", E.length >= 1],
-    ["list-checks", "Centurion", "100 dépenses enregistrées", E.length >= 100],
-    ["target", "Dans les clous", "Un mois complet sous le budget", monthsUnder >= 1],
-    ["trophy", "Régularité", "3 mois d'affilée sous le budget", monthsUnder >= 3],
-    ["piggy-bank", "Fourmi", "Épargner 3 mois d'affilée", saveStreak >= 3],
-    ["party-popper", "Objectif atteint", "Atteindre un objectif d'épargne", state.goals.some(g => g.target && g.saved >= g.target)],
-    ["flame", "Défi relevé", "Réussir un défi d'économie", state.challenges.some(c => { const r = chalEval(c); return r.done && (c.kind === "max" ? r.ok : r.koN === 0); })],
-    ["sun", "Semaine zen", "7 jours d'affilée sans dépense (hors fixes)", noSpendWeek],
-    ["landmark", "Banquier", "Importer un relevé bancaire", E.some(e => e.imported)],
-    ["folder-open", "Bien rangé", "3 papiers importants notés", state.papers.length >= 3],
-    ["chef-hat", "Chef", "Planifier 7 repas", state.meals.length >= 7],
-    ["handshake", "Équitable", "Solder les comptes entre vous", state.reimbs.length >= 1],
-    ["save", "Prudent", "Télécharger une sauvegarde", +pref.get("pc.lastBackup", "0") > 0],
+    {id:"premier_pas", icon:"sprout", name:"Premier pas", desc:"Enregistrer une dépense", xp:10, ok:E.length >= 1},
+    {id:"centurion_100", icon:"list-checks", name:"Centurion", desc:"100 dépenses enregistrées", xp:60, ok:E.length >= 100},
+    {id:"centurion_500", icon:"medal", name:"Vétéran du grand livre", desc:"500 dépenses enregistrées", xp:150, ok:E.length >= 500},
+    {id:"centurion_1000", icon:"trophy", name:"Légende du budget", desc:"1000 dépenses enregistrées", xp:300, ok:E.length >= 1000},
+    {id:"banquier", icon:"landmark", name:"Banquier", desc:"Importer un relevé bancaire", xp:20, ok:E.some(e => e.imported)},
+    {id:"dans_les_clous", icon:"target", name:"Dans les clous", desc:"Un mois complet sous le budget", xp:30, ok:monthsUnder >= 1},
+    {id:"regularite_3", icon:"award", name:"Régularité", desc:"3 mois d'affilée sous le budget", xp:80, ok:monthsUnder >= 3},
+    {id:"regularite_6", icon:"trophy", name:"Discipline de fer", desc:"6 mois d'affilée sous le budget", xp:150, ok:monthsUnder >= 6},
+    {id:"regularite_12", icon:"star", name:"Un an sans dérailler", desc:"12 mois d'affilée sous le budget", xp:300, ok:monthsUnder >= 12},
+    {id:"fourmi_3", icon:"piggy-bank", name:"Fourmi", desc:"Épargner 3 mois d'affilée", xp:60, ok:saveStreak >= 3},
+    {id:"fourmi_12", icon:"coins", name:"Petit trésor", desc:"Épargner 12 mois d'affilée", xp:200, ok:saveStreak >= 12},
+    {id:"objectif_atteint", icon:"party-popper", name:"Objectif atteint", desc:"Atteindre un objectif d'épargne", xp:50, ok:state.goals.some(g => g.target && g.saved >= g.target)},
+    {id:"objectif_x5", icon:"star", name:"Collectionneur d'objectifs", desc:"Atteindre 5 objectifs d'épargne", xp:150, ok:state.goals.filter(g => g.target && g.saved >= g.target).length >= 5},
+    {id:"defi_releve", icon:"flame", name:"Défi relevé", desc:"Réussir un défi d'économie", xp:40, ok:state.challenges.some(chalDone)},
+    {id:"semaine_zen", icon:"sun", name:"Semaine zen", desc:"7 jours d'affilée sans dépense (hors fixes)", xp:40, ok:noSpendWeek},
+    {id:"prudent", icon:"save", name:"Prudent", desc:"Télécharger une sauvegarde", xp:15, ok:+pref.get("pc.lastBackup", "0") > 0},
+    {id:"premiere_course", icon:"shopping-basket", name:"Première liste", desc:"Ajouter un article à la liste de courses", xp:10, ok:state.shop.length >= 1},
+    {id:"course_50", icon:"store", name:"Habitué du magasin", desc:"50 articles de courses ajoutés", xp:30, ok:state.shop.length >= 50},
+    {id:"anti_gaspi", icon:"apple", name:"Anti-gaspi", desc:"10 articles suivis dans l'inventaire", xp:20, ok:state.inventory.length >= 10},
+    {id:"garde_manger", icon:"refrigerator", name:"Garde-manger plein", desc:"30 articles suivis dans l'inventaire", xp:50, ok:state.inventory.length >= 30},
+    {id:"bien_range", icon:"folder-open", name:"Bien rangé", desc:"3 papiers importants notés", xp:20, ok:state.papers.length >= 3},
+    {id:"menage_fait", icon:"spray-can", name:"Ménage à jour", desc:"5 tâches de ménage suivies", xp:20, ok:state.chores.length >= 5},
+    {id:"chef", icon:"chef-hat", name:"Chef", desc:"Planifier 7 repas", xp:20, ok:state.meals.length >= 7},
+    {id:"gourmet", icon:"utensils", name:"Gourmet", desc:"Planifier 30 repas", xp:60, ok:state.meals.length >= 30},
+    {id:"planificateur", icon:"calendar-days", name:"Planificateur", desc:"5 événements à l'agenda", xp:20, ok:state.events.length >= 5},
+    {id:"facture_suivie", icon:"clipboard-list", name:"Papiers en règle", desc:"5 factures ou tâches suivies", xp:20, ok:state.todos.length >= 5},
+    {id:"projet_lance", icon:"compass", name:"Grand projet", desc:"Créer un projet", xp:15, ok:state.projects.length >= 1},
+    {id:"multi_projets", icon:"layout-grid", name:"Multi-tâches", desc:"3 projets en cours", xp:40, ok:state.projects.length >= 3},
+    {id:"equitable", icon:"handshake", name:"Équitable", desc:"Solder les comptes entre vous", xp:20, ok:state.reimbs.length >= 1},
+    {id:"genereux", icon:"gift", name:"Généreux", desc:"Ajouter 3 souhaits à la liste", xp:15, ok:state.wishes.length >= 3},
+    {id:"vue_ensemble", icon:"credit-card", name:"Vue d'ensemble", desc:"Ajouter un compte bancaire", xp:15, ok:state.accounts.length >= 1},
+    {id:"sous_controle", icon:"shield-check", name:"Sous contrôle", desc:"Suivre une dette", xp:15, ok:state.debts.length >= 1},
+    {id:"bricoleur", icon:"wrench", name:"Bricoleur", desc:"Suivre l'entretien d'un véhicule", xp:20, ok:state.cars.some(c => (c.entries || []).length >= 1)},
+    {id:"grand_routier", icon:"fuel", name:"Grand routier", desc:"10 pleins enregistrés", xp:30, ok:fillups >= 10},
+    {id:"garanties_ok", icon:"receipt", name:"Bien assuré", desc:"3 garanties suivies", xp:15, ok:state.warranties.length >= 3},
+    {id:"argent_de_poche", icon:"hand-coins", name:"Éducation financière", desc:"Suivre l'argent de poche d'un enfant", xp:20, ok:state.kids.length >= 1},
+    {id:"cagnotte_active", icon:"banknote", name:"Cagnotte commune", desc:"Faire un premier versement à la cagnotte", xp:15, ok:state.potmoves.length >= 1},
+    {id:"journal_tenu", icon:"book-open", name:"Petites histoires", desc:"10 entrées au journal du foyer", xp:20, ok:state.journal.length >= 10},
   ];
 }
-function renderBadges(){
-  const l = badgeList();
-  $("#badges").innerHTML = l.map(([e, n, d, ok]) => `<div class="badge-it ${ok ? "" : "off"}" title="${esc(d)}"><span class="tile">${I(e)}</span><b>${esc(n)}</b><div class="muted" style="font-size:.7rem">${esc(d)}</div></div>`).join("");
+function xpForLevel(n){ return 50 * n * (n + 1) / 2; }
+function levelFromXp(xp){ let n = 0; while (xpForLevel(n + 1) <= xp) n++; return n + 1; }
+function levelTitle(n){ return n >= 36 ? "Légende" : n >= 21 ? "Maître" : n >= 11 ? "Expert" : n >= 6 ? "Habitué" : "Débutant"; }
+function levelInfo(xp){
+  xp = xp || 0;
+  const level = levelFromXp(xp), floor = xpForLevel(level - 1), ceil = xpForLevel(level);
+  return {level, xp, floor, ceil, pct:Math.max(0, Math.min(100, Math.round((xp - floor) / (ceil - floor) * 100))), title:levelTitle(level)};
 }
-function checkNewBadges(){
+function renderBadges(){
+  const l = badgeList(), unlocked = (typeof SV !== "undefined" && SV.hh) ? new Set((SV.hh.badges || []).map(b => b.id)) : null;
+  $$(".badges").forEach(el => {
+    el.innerHTML = l.map(b => {
+      const ok = unlocked ? unlocked.has(b.id) : b.ok;
+      return `<div class="badge-it ${ok ? "" : "off"}" title="${esc(b.desc)}"><span class="tile">${I(b.icon)}</span><b>${esc(b.name)}</b><div class="muted" style="font-size:.7rem">${esc(b.desc)}</div><span class="xp">+${b.xp} XP</span></div>`;
+    }).join("");
+  });
+}
+async function checkNewBadges(){
   if (state.mode === "loading" || !state.loaded.expenses) return;
+  const got = badgeList().filter(b => b.ok).map(b => b.id);
+  if (state.mode === "shared" && typeof SV !== "undefined" && SV.hh) {
+    const have = new Set((SV.hh.badges || []).map(b => b.id));
+    const fresh = got.filter(id => !have.has(id));
+    if (!fresh.length) return;
+    const beforeLevel = levelInfo(SV.hh.xp).level;
+    try {
+      const r = await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/badges`, {ids:fresh});
+      SV.hh.xp = r.xp; SV.hh.badges = r.badges;
+      const b = badgeList().find(x => x.id === fresh[0]);
+      toast(`Badge débloqué : ${b.name} (+${b.xp} XP)`);
+      if (levelInfo(r.xp).level > beforeLevel) toast(`Niveau ${levelInfo(r.xp).level} atteint !`);
+      renderBadges(); renderAcctChip();
+    } catch {}
+    return;
+  }
   let seen; try { seen = JSON.parse(pref.get("pc.badges", "null")); } catch {}
-  const got = badgeList().filter(b => b[3]).map(b => b[1]);
   if (!Array.isArray(seen)) { pref.set("pc.badges", JSON.stringify(got)); return; }
-  const fresh = got.filter(n => !seen.includes(n));
-  if (fresh.length) { pref.set("pc.badges", JSON.stringify(got)); const b = badgeList().find(x => x[1] === fresh[0]); toast(`Badge débloqué : ${b[1]}`); }
+  const fresh = got.filter(id => !seen.includes(id));
+  if (fresh.length) { pref.set("pc.badges", JSON.stringify(got)); const b = badgeList().find(x => x.id === fresh[0]); toast(`Badge débloqué : ${b.name}`); }
 }
 
 /* ================= Résumé de l'année ================= */
@@ -4506,7 +4640,7 @@ function buildWrap(y){
   if (mos.length > 1) s.push(["trending-down", monthLabel(mos[0][0]).split(" ")[0], `votre mois le plus sobre (${fmt(mos[0][1])})`, `et le plus chargé : ${monthLabel(mos[mos.length - 1][0]).split(" ")[0]} (${fmt(mos[mos.length - 1][1])})`]);
   s.push(["sun", String(free), `jours sans aucune dépense`, free > nDays / 3 ? "Belle maîtrise !" : "Chaque jour sans dépense compte."]);
   if (saved > 0) s.push(["piggy-bank", fmt(saved), "mis de côté cette année", "Bravo pour cet effort."]);
-  const gotB = badgeList().filter(b => b[3]).length;
+  const gotB = badgeList().filter(b => b.ok).length;
   s.push(["medal", `${gotB} badge${gotB > 1 ? "s" : ""}`, "débloqués", "Rendez-vous l'an prochain pour faire encore mieux !"]);
   return s;
 }
@@ -5070,6 +5204,7 @@ const ACC_HTML = `<div id="srvAcc">
       <input class="inp" id="accPw1" type="password" placeholder="Nouveau mot de passe (10 caractères min.)" autocomplete="new-password" style="margin-bottom:8px">
       <button type="button" class="btn sm" id="accPwGo">Enregistrer</button><p class="err" id="accPwErr" style="margin:8px 0 0"></p></details>
   </div><hr class="sep"></div>`;
+let accMembersCache = [];
 async function renderAccess(){
   $("#accHh").innerHTML = `<b>${esc(SV.hh.name)}</b>&nbsp;<span class="muted small">· ${({owner:"propriétaire", contributor:"contributeur", viewer:"lecteur"})[SV.role]}</span>`;
   $("#accMe").innerHTML = `${esc(SV.me.name || "")}<span>${esc(SV.me.email)}</span>`;
@@ -5078,8 +5213,9 @@ async function renderAccess(){
   $("#accInvite").hidden = SV.role !== "owner";
   try {
     const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/members`);
+    accMembersCache = r.members;
     const owner = r.role === "owner";
-    $("#accMembers").innerHTML = r.members.map(m => `<div class="acc-row"><span class="tx">${esc(m.name || m.email)}${m.me ? " (vous)" : ""}<span>${esc(m.email)}</span></span>
+    $("#accMembers").innerHTML = r.members.map(m => `<div class="acc-row"><button type="button" class="tx" data-mview="${esc(m.id)}" style="display:flex;align-items:center;gap:8px;border:0;background:none;text-align:left;padding:0;cursor:pointer;color:inherit;font:inherit"><span class="av" style="width:26px;height:26px;overflow:hidden">${acctAvatarHtml(m)}</span><span>${esc(m.name || m.email)}${m.me ? " (vous)" : ""}<span>${esc(m.email)}</span></span></button>
         ${owner && !m.me ? `<select data-mrole="${esc(m.id)}" aria-label="Rôle de ${esc(m.name)}">${["owner","contributor","viewer"].map(x => `<option value="${x}" ${x === m.role ? "selected" : ""}>${({owner:"Propriétaire", contributor:"Contributeur", viewer:"Lecteur"})[x]}</option>`).join("")}</select><button type="button" class="x" data-mdel="${esc(m.id)}" aria-label="Retirer ${esc(m.name)}">${I("x")}</button>`
         : `<span class="muted small">${({owner:"Propriétaire", contributor:"Contributeur", viewer:"Lecteur"})[m.role]}</span>${m.me && !owner ? `<button type="button" class="btn sm ghost" data-mdel="${esc(m.id)}">Quitter</button>` : ""}`}</div>`).join("")
       + r.invites.map(i => `<div class="acc-row"><span class="tx">${esc(i.email)}<span>Invitation envoyée · ${i.role === "viewer" ? "lecteur" : "contributeur"}</span></span><button type="button" class="x" data-idel="${esc(i.id)}" aria-label="Annuler l'invitation">${I("x")}</button></div>`).join("");
@@ -5102,6 +5238,7 @@ function initServerSettings(){
     renderAccess();
   });
   $("#accMembers").addEventListener("click", async e => {
+    const v = e.target.closest("[data-mview]"); if (v) { const m = accMembersCache.find(x => x.id === v.dataset.mview); if (m) openProfile(m, m.id === SV.me.id); return; }
     const d = e.target.closest("[data-mdel]"), iv = e.target.closest("[data-idel]");
     try {
       if (d) { const self = d.dataset.mdel === SV.me.id; if (!confirm(self ? "Quitter ce foyer ?" : "Retirer l'accès de cette personne ?")) return;
@@ -5140,6 +5277,60 @@ function initServerSettings(){
   };
   const __openSettings = openSettings;
   openSettings = function(){ __openSettings(); $("#accTotpBox").hidden = true; renderAccess(); };
+  initProfileDlg();
+  $("#acctChip").addEventListener("click", () => openProfile(SV.me, true));
+}
+
+/* ---------- Profil de compte ---------- */
+function idColor(id){ let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return MEMBER_COLORS[h % MEMBER_COLORS.length]; }
+function acctAvatarHtml(u){
+  if (u && u.avatar) return `<img src="${u.avatar}" alt="">`;
+  const initial = esc(((u && (u.name || u.email)) || "?")[0].toUpperCase());
+  return `<span style="background:${idColor(u ? u.id : "")};width:100%;height:100%;display:grid;place-items:center;color:#fff;font-weight:700">${initial}</span>`;
+}
+function renderAcctChip(){
+  if (!SV.me) return;
+  $("#acctAv").innerHTML = acctAvatarHtml(SV.me);
+  $("#acctName").textContent = SV.me.name || SV.me.email;
+  const li = levelInfo(SV.hh ? SV.hh.xp : 0);
+  $("#acctLevel").textContent = `Niveau ${li.level} · ${li.title}`;
+}
+let pfEditable = true, pfUser = null;
+function openProfile(u, editable){
+  pfUser = u; pfEditable = !!editable && u.id === SV.me.id;
+  $("#pfAvatar").innerHTML = acctAvatarHtml(u);
+  $("#pfBanner").style.backgroundImage = u.banner ? `url(${u.banner})` : "";
+  $("#pfName").textContent = u.name || u.email;
+  $("#pfEmail").textContent = u.email || "";
+  $("#pfBio").value = u.bio || ""; $("#pfBioCount").textContent = `${(u.bio || "").length} / 280`;
+  $("#pfBio").disabled = !pfEditable; $("#pfSaveBio").hidden = !pfEditable;
+  $("#pfBannerBtn").hidden = $("#pfAvatarBtn").hidden = !pfEditable;
+  const li = levelInfo(SV.hh ? SV.hh.xp : 0);
+  $("#pfLevelName").textContent = `Niveau ${li.level} · ${li.title}`;
+  $("#pfXpText").textContent = `${li.xp} XP · ${li.ceil - li.xp} XP avant le niveau ${li.level + 1}`;
+  $("#pfBar").style.width = li.pct + "%";
+  renderBadges();
+  $("#profileDlg").showModal();
+}
+async function uploadProfileImage(file, kind){
+  const cfg = kind === "avatar" ? {max:480, q:.82, bytes:170000} : {max:1400, q:.78, bytes:250000};
+  let c = await drawScaled(file, cfg.max, cfg.q), url = c.toDataURL("image/jpeg", cfg.q), q = cfg.q;
+  while (url.length > cfg.bytes && q > 0.35) { q -= 0.12; url = c.toDataURL("image/jpeg", q); }
+  await api("POST", `/api/me/${kind}`, {image:url});
+  if (kind === "avatar") SV.me.avatar = url; else SV.me.banner = url;
+  openProfile(SV.me, true); renderAcctChip();
+}
+function initProfileDlg(){
+  $("#pfBannerBtn").addEventListener("click", () => $("#pfBannerFile").click());
+  $("#pfAvatarBtn").addEventListener("click", () => $("#pfAvatarFile").click());
+  $("#pfBannerFile").addEventListener("change", async e => { const f = e.target.files[0]; e.target.value = ""; if (f) try { await uploadProfileImage(f, "banner"); } catch { toast("Image invalide"); } });
+  $("#pfAvatarFile").addEventListener("change", async e => { const f = e.target.files[0]; e.target.value = ""; if (f) try { await uploadProfileImage(f, "avatar"); } catch { toast("Image invalide"); } });
+  $("#pfBio").addEventListener("input", () => { $("#pfBioCount").textContent = `${$("#pfBio").value.length} / 280`; });
+  $("#pfBioForm").addEventListener("submit", async e => {
+    e.preventDefault(); if (!pfEditable) return;
+    try { await api("PATCH", "/api/me", {name:SV.me.name, bio:$("#pfBio").value}); SV.me.bio = $("#pfBio").value; toast("Profil mis à jour"); }
+    catch (err) { toast(err.message); }
+  });
 }
 
 /* ---------- Démarrage en mode serveur ---------- */
@@ -5153,6 +5344,7 @@ if (SRV) {
     if (SV.hh) {
       if (!state.settings.houseName) $("#houseName").textContent = SV.hh.name;
       const st = $("#status"); if (st && state.mode === "shared") st.textContent = (SV.role === "viewer" ? "Lecture seule" : SV.role === "owner" ? "Propriétaire" : "Contributeur") + " · " + (SV.me.name || SV.me.email) + (offq.get().length ? ` · ${offq.get().length} en attente` : "");
+      renderAcctChip();
     }
   };
   (async () => {

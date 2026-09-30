@@ -342,14 +342,33 @@ app.post("/api/auth/logout-all", requireUser, h(async (req, res) => {
 app.get("/api/me", h(async (req, res) => {
   if (!req.user) throw new HttpError(401, "unauthenticated", "Connexion requise.");
   if (req.sess.mfaPending) return res.json({ mfa: true, email: req.user.email });
-  const hs = (await q(`SELECT h.id, h.name, m.role, (SELECT count(*) FROM memberships x WHERE x.household_id = h.id)::int AS members
+  const hs = (await q(`SELECT h.id, h.name, m.role, h.xp, h.badges, (SELECT count(*) FROM memberships x WHERE x.household_id = h.id)::int AS members
     FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY h.created_at`, [req.user.id])).rows;
   const u = req.user;
-  res.json({ user: { id: u.id, email: u.email, name: u.name, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
+  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
 }));
 app.patch("/api/me", requireUser, h(async (req, res) => {
   const name = String(req.body.name || "").trim().slice(0, 60); if (!name) throw bad("bad_name", "Nom requis.");
-  await q("UPDATE users SET name = $2 WHERE id = $1", [req.user.id, name]); res.json({ ok: true });
+  const bio = req.body.bio == null ? undefined : String(req.body.bio).trim().slice(0, 280);
+  if (bio === undefined) await q("UPDATE users SET name = $2 WHERE id = $1", [req.user.id, name]);
+  else await q("UPDATE users SET name = $2, bio = $3 WHERE id = $1", [req.user.id, name, bio]);
+  res.json({ ok: true });
+}));
+function checkImageDataUrl(image, maxLen) {
+  if (typeof image !== "string" || !/^data:image\/(png|jpe?g|webp);base64,/.test(image)) throw bad("bad_image", "Image invalide.");
+  if (image.length > maxLen) throw new HttpError(413, "quota_exceeded", "Image trop volumineuse.");
+}
+app.post("/api/me/avatar", requireUser, h(async (req, res) => {
+  const image = req.body.image === null ? null : req.body.image;
+  if (image !== null) checkImageDataUrl(image, 180000);
+  await q("UPDATE users SET avatar = $2 WHERE id = $1", [req.user.id, image]);
+  res.json({ ok: true });
+}));
+app.post("/api/me/banner", requireUser, h(async (req, res) => {
+  const image = req.body.image === null ? null : req.body.image;
+  if (image !== null) checkImageDataUrl(image, 260000);
+  await q("UPDATE users SET banner = $2 WHERE id = $1", [req.user.id, image]);
+  res.json({ ok: true });
 }));
 app.post("/api/me/password", requireUser, h(async (req, res) => {
   limit("pw:" + req.user.id, 6, 3600e3);
@@ -412,7 +431,7 @@ app.delete("/api/h/:hid", requireUser, member, ownerOnly, h(async (req, res) => 
 /* ---------------------------- Membres et invitations ---------------------------- */
 const ROLE_FR = { owner: "propriétaire", contributor: "contributeur", viewer: "lecteur" };
 app.get("/api/h/:hid/members", requireUser, member, h(async (req, res) => {
-  const members = (await q(`SELECT u.id, u.email, u.name, m.role FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.household_id = $1 ORDER BY m.created_at`, [req.params.hid])).rows;
+  const members = (await q(`SELECT u.id, u.email, u.name, u.avatar, u.bio, m.role FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.household_id = $1 ORDER BY m.created_at`, [req.params.hid])).rows;
   const invites = req.role === "owner" ? (await q("SELECT id, email, role, created_at, expires_at FROM invites WHERE household_id = $1 AND accepted_at IS NULL AND expires_at > now() ORDER BY created_at DESC", [req.params.hid])).rows : [];
   res.json({ role: req.role, members: members.map(m => ({ ...m, me: m.id === req.user.id })), invites });
 }));
@@ -461,6 +480,25 @@ app.get("/api/invites/:token", h(async (req, res) => {
 }));
 app.post("/api/invites/:token/accept", requireUser, h(async (req, res) => { res.json({ ok: true, hid: await acceptInvite(req.params.token, req.user) }); }));
 
+/* ---------------------------- Gamification (XP, badges) ---------------------------- */
+// XP accordé automatiquement à la création (pas à la modification) d'un document dans ces collections.
+const ACTION_XP = {
+  expenses: 2, revenus: 2, remboursements: 3, epargne: 3, defis: 5, projets: 3, comptes: 3, dettes: 3,
+  cagnotte: 2, argentdepoche: 2, garanties: 2, groupes: 2, courses: 1, factures: 1, repas: 1, papiers: 2,
+  vehicules: 2, placards: 1, menage: 1, souhaits: 1, evenements: 1, compteurs: 1, bilans: 3, journal: 1, sante: 1,
+};
+// Catalogue serveur des badges : id -> xp accordé au déblocage (le client détermine QUAND un badge est débloqué,
+// le serveur ne fait confiance qu'à cette table pour la VALEUR en xp, et n'accorde jamais deux fois le même id).
+const BADGE_CATALOG = {
+  premier_pas: 10, centurion_100: 60, centurion_500: 150, centurion_1000: 300, banquier: 20,
+  dans_les_clous: 30, regularite_3: 80, regularite_6: 150, regularite_12: 300,
+  fourmi_3: 60, fourmi_12: 200, objectif_atteint: 50, objectif_x5: 150, defi_releve: 40, semaine_zen: 40, prudent: 15,
+  premiere_course: 10, course_50: 30, anti_gaspi: 20, garde_manger: 50, bien_range: 20, menage_fait: 20, chef: 20, gourmet: 60,
+  planificateur: 20, facture_suivie: 20, projet_lance: 15, multi_projets: 40, equitable: 20, genereux: 15,
+  vue_ensemble: 15, sous_controle: 15, bricoleur: 20, grand_routier: 30, garanties_ok: 15,
+  argent_de_poche: 20, cagnotte_active: 15, journal_tenu: 20,
+};
+
 /* ---------------------------- Données du foyer ---------------------------- */
 const COLL_RE = /^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+){0,6}$/, ID_RE = /^[A-Za-z0-9_\-.:@+~]{1,200}$/;
 function docOwner(coll, uid) {
@@ -473,7 +511,23 @@ const isTickets = c => c === "tickets" || c.includes("/_tickets/");
 
 app.get("/api/h/:hid/data", requireUser, member, h(async (req, res) => {
   const docs = await asUser(req.user.id, c => c.query("SELECT coll, id, data FROM docs WHERE household_id = $1 AND (owner = '' OR owner = $2) AND coll <> 'tickets' AND coll NOT LIKE '%/\\_tickets/%'", [req.params.hid, req.user.id]));
-  res.json({ household: { id: req.params.hid, name: req.hname, role: req.role }, me: { id: req.user.id, email: req.user.email, name: req.user.name }, docs: docs.rows });
+  const hh = (await q("SELECT xp, badges FROM households WHERE id = $1", [req.params.hid])).rows[0] || { xp: 0, badges: [] };
+  res.json({ household: { id: req.params.hid, name: req.hname, role: req.role, xp: hh.xp, badges: hh.badges }, me: { id: req.user.id, email: req.user.email, name: req.user.name, avatar: req.user.avatar, bio: req.user.bio || "" }, docs: docs.rows });
+}));
+app.post("/api/h/:hid/badges", requireUser, member, h(async (req, res) => {
+  if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.filter(id => typeof id === "string" && BADGE_CATALOG[id]).slice(0, 50) : [];
+  const r = await q("SELECT xp, badges FROM households WHERE id = $1", [req.params.hid]);
+  const hh = r.rows[0]; if (!hh) throw new HttpError(404, "not_found", "Foyer introuvable.");
+  const have = new Set((hh.badges || []).map(b => b.id));
+  const fresh = ids.filter(id => !have.has(id));
+  if (fresh.length) {
+    const gained = fresh.reduce((s, id) => s + BADGE_CATALOG[id], 0);
+    const badges = (hh.badges || []).concat(fresh.map(id => ({ id, unlockedAt: new Date().toISOString() })));
+    await q("UPDATE households SET xp = xp + $2, badges = $3 WHERE id = $1", [req.params.hid, gained, JSON.stringify(badges)]);
+    hh.xp += gained; hh.badges = badges;
+  }
+  res.json({ xp: hh.xp, badges: hh.badges });
 }));
 app.get("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
   const coll = String(req.query.coll || ""), id = String(req.query.id || ""); docOwner(coll, req.user.id);
@@ -489,9 +543,12 @@ app.put("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
   if (!data || typeof data !== "object" || Array.isArray(data)) throw bad("bad_data", "Document invalide.");
   const json = JSON.stringify(data);
   if (json.length > 300000) throw new HttpError(413, "quota_exceeded", "Document trop volumineux.");
+  const xpGain = ACTION_XP[coll] || 0;
   await asUser(req.user.id, async c => {
-    await c.query(`INSERT INTO docs (household_id, coll, id, owner, data, updated_by) VALUES ($1,$2,$3,$4,$5,$6)
-      ON CONFLICT (household_id, coll, id) DO UPDATE SET data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by WHERE docs.owner = EXCLUDED.owner`, [req.params.hid, coll, id, owner, json, req.user.id]);
+    const ins = await c.query(`INSERT INTO docs (household_id, coll, id, owner, data, updated_by) VALUES ($1,$2,$3,$4,$5,$6)
+      ON CONFLICT (household_id, coll, id) DO UPDATE SET data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by WHERE docs.owner = EXCLUDED.owner
+      RETURNING (xmax = 0) AS inserted`, [req.params.hid, coll, id, owner, json, req.user.id]);
+    if (xpGain && ins.rows[0] && ins.rows[0].inserted) await c.query("UPDATE households SET xp = xp + $2 WHERE id = $1", [req.params.hid, xpGain]);
     const payload = { t: "doc", hid: req.params.hid, coll, id, owner, by: req.user.id };
     if (json.length < 7000 && !isTickets(coll)) payload.data = data; else payload.big = true;
     await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify(payload)]);
