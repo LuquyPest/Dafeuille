@@ -109,6 +109,7 @@ nav.tabs .badge{position:absolute;top:3px;right:calc(50% - 22px);background:var(
     background:color-mix(in srgb, var(--surface) 82%, transparent);-webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);box-shadow:var(--sh-lg);border:1px solid var(--line)}
   nav.tabs button{padding:7px 2px;font-size:.66rem}
 }
+#acctBtnMobile .av{width:24px;height:24px;font-size:.7rem;margin:0}
 #acctChip{display:none;position:fixed;left:0;bottom:0;width:272px;height:80px;z-index:5;align-items:center;gap:10px;
   padding:0 16px;background:var(--surface);border-right:1px solid var(--line);border-top:1px solid var(--line);
   text-align:left;border-radius:0}
@@ -127,6 +128,7 @@ nav.tabs .badge{position:absolute;top:3px;right:calc(50% - 22px);background:var(
   body .fab,body .fab2{display:none}
   nav.tabs .badge{position:static;margin-left:auto;border:0}
   #acctChip{display:flex}
+  #acctBtnMobile{display:none}
 }
 
 /* ---------- Mise en page ---------- */
@@ -554,6 +556,7 @@ img.av{object-fit:cover}
     <button class="iconbtn" id="hideBtn" title="Masquer les montants" aria-label="Masquer les montants" aria-pressed="false"><i data-i="eye"></i></button>
     <button class="iconbtn" id="exportBtn" title="Exporter" aria-label="Exporter" hidden><i data-i="download"></i></button>
     <button class="iconbtn" id="settingsBtn" title="Réglages du foyer" aria-label="Réglages du foyer"><i data-i="settings"></i></button>
+    <button class="iconbtn" id="acctBtnMobile" title="Mon profil" aria-label="Mon profil"><span class="av" id="acctAvMobile" aria-hidden="true"></span></button>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Sections">
@@ -5969,6 +5972,7 @@ function initServerSettings(){
   openSettings = function(){ __openSettings(); $("#accTotpBox").hidden = true; renderAccess(); };
   initProfileDlg();
   $("#acctChip").addEventListener("click", () => openProfile(SV.me, true));
+  $("#acctBtnMobile").addEventListener("click", () => openProfile(SV.me, true));
 }
 
 /* ---------- Profil de compte ---------- */
@@ -5981,6 +5985,7 @@ function acctAvatarHtml(u){
 function renderAcctChip(){
   if (!SV.me) return;
   $("#acctAv").innerHTML = acctAvatarHtml(SV.me);
+  $("#acctAvMobile").innerHTML = acctAvatarHtml(SV.me);
   $("#acctName").textContent = SV.me.name || SV.me.email;
   const li = levelInfo(SV.me.xp);
   $("#acctLevel").textContent = `Niveau ${li.level} · ${li.title}`;
