@@ -6051,12 +6051,13 @@ function renderPodium(top3){
   box.innerHTML = order.map(u => {
     if (!u) return "";
     const rank = top3.indexOf(u) + 1, li = levelInfo(u.xp || 0);
-    return `<button type="button" class="pplace p${rank}" data-uid="${esc(u.id)}">
-      ${rank === 1 ? `<span class="crown">👑</span>` : ""}
+    const rankLabel = ["1er", "2e", "3e"][rank - 1];
+    return `<button type="button" class="pplace p${rank}" data-uid="${esc(u.id)}" aria-label="${esc(rankLabel)} : ${esc(u.name || "?")}${u.id === SV.me.id ? " (toi)" : ""}, ${u.xp || 0} XP">
+      ${rank === 1 ? `<span class="crown" aria-hidden="true">👑</span>` : ""}
       <span class="av pav" aria-hidden="true">${acctAvatarHtml(u)}</span>
-      <span class="pname">${esc(u.name || "?")}${u.id === SV.me.id ? " (toi)" : ""}</span>
-      <span class="pxp" data-xp="${u.xp || 0}">0 XP</span>
-      <div class="pedestal">${["🥇","🥈","🥉"][rank - 1]}</div>
+      <span class="pname" aria-hidden="true">${esc(u.name || "?")}${u.id === SV.me.id ? " (toi)" : ""}</span>
+      <span class="pxp" aria-hidden="true" data-xp="${u.xp || 0}">0 XP</span>
+      <div class="pedestal" aria-hidden="true">${["🥇","🥈","🥉"][rank - 1]}</div>
     </button>`;
   }).join("");
   setTimeout(() => { $$("#leaderPodium .pxp").forEach(el => animateCount(el, +el.dataset.xp)); }, 550);
