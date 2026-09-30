@@ -391,6 +391,7 @@ details.more[open] summary{margin-bottom:12px}
 .donut svg path{cursor:pointer;transition:opacity .15s}
 .donut svg path:hover{opacity:.8}
 .donut ul{flex:1;min-width:160px}
+.thumb{width:34px;height:34px;border-radius:9px;object-fit:cover;flex:none}
 .streak{display:flex;gap:3px;flex-wrap:wrap;margin:8px 0}
 .streak i{width:12px;height:12px;border-radius:4px;background:var(--sunk);display:block}
 .streak i.ok{background:var(--good)} .streak i.ko{background:var(--danger)} .streak i.fut{background:none;box-shadow:inset 0 0 0 1px var(--line)}
@@ -724,6 +725,7 @@ img.av{object-fit:cover}
         </section>
         <section class="panel">
           <div class="phead"><h2>Comptes entre amis</h2><button class="btn sm" id="addGroup">+ Groupe</button></div>
+          <label class="check" id="gArchToggle" style="margin-bottom:8px" hidden><input type="checkbox" id="gShowArchived"> Voir les groupes archivés</label>
           <div id="groups"></div>
         </section>
         <section class="panel">
@@ -1333,7 +1335,16 @@ img.av{object-fit:cover}
       <div id="gpLinkNone"><button type="button" class="btn sm" id="gpLinkGen">Générer un lien</button></div>
       <div id="gpLinkOn" hidden>
         <div class="erow"><input class="inp" id="gpLinkUrl" readonly aria-label="Lien de partage du groupe"><button type="button" class="btn sm ghost" id="gpLinkCopy">Copier</button></div>
+        <img id="gpLinkQr" alt="QR code du lien" style="display:block;margin:10px auto 0;width:150px;height:150px;border-radius:12px">
         <div class="actions" style="margin-top:8px"><button type="button" class="btn sm ghost" id="gpLinkRevoke">Révoquer</button><button type="button" class="btn sm ghost" id="gpLinkRegen">Régénérer</button></div>
+      </div>
+    </div>
+    <div class="field" id="gpMgmtField" hidden>
+      <div class="actions" style="margin:0 0 10px;flex-wrap:wrap">
+        <button type="button" class="btn sm ghost" id="gpExport"><i data-i="file-down"></i>Récap PDF</button>
+        <button type="button" class="btn sm ghost" id="gpDup"><i data-i="copy"></i>Dupliquer</button>
+        <label class="check"><input type="checkbox" id="gpArchived"> Archivé</label>
+        <label class="check"><input type="checkbox" id="gpLocked"> Verrouillé</label>
       </div>
     </div>
     <div id="gpBody"></div>
@@ -1554,6 +1565,15 @@ const BASE_CATS = [
   {id:"autre",       name:"Autre",       ico:"package", color:"#64748B"},
 ];
 const EXTRA_COLORS = ["#14B8A6","#6366F1","#D946EF","#84CC16","#EAB308","#0EA5E9","#F43F5E","#A855F7"];
+const GROUP_CATS = [
+  {id:"restaurant", name:"Resto", ico:"utensils", color:"#F59E0B"},
+  {id:"transport",  name:"Transport", ico:"car", color:"#8B5CF6"},
+  {id:"hebergement",name:"Hébergement", ico:"tent", color:"#3B82F6"},
+  {id:"activite",   name:"Activité", ico:"ticket", color:"#06B6D4"},
+  {id:"courses",    name:"Courses", ico:"shopping-cart", color:"#10B981"},
+  {id:"autre",      name:"Autre", ico:"package", color:"#64748B"},
+];
+const groupCatOf = id => GROUP_CATS.find(c => c.id === id) || GROUP_CATS[GROUP_CATS.length - 1];
 const CURRENCIES = ["EUR","USD","GBP","CHF","CAD","JPY","MAD","XOF"];
 const REFUND_SOURCES = ["Sécu","Mutuelle","Employeur","Assurance","Autre"];
 const DEFAULT_SETTINGS = { members:[{id:"m1", name:"Moi", weight:100}], budget:0, catBudgets:{}, customCats:[], favorites:[], rates:{}, alertPct:80, envelopes:false, envStart:null, merchantCats:{} };
@@ -3902,28 +3922,115 @@ $("#addChal").addEventListener("click", () => openChal(null));
 function groupBalances(g){
   const bal = {}; (g.people || []).forEach(p => bal[p.id] = 0);
   (g.items || []).forEach(it => {
-    const parts = (it.parts || []).filter(id => id in bal); if (!parts.length) return;
     if (it.payer in bal) bal[it.payer] += it.amount;
+    if (it.splits) { Object.entries(it.splits).forEach(([id, amt]) => { if (id in bal) bal[id] -= amt; }); return; }
+    const parts = (it.parts || []).filter(id => id in bal); if (!parts.length) return;
     parts.forEach(id => bal[id] -= it.amount / parts.length);
   });
   return bal;
 }
+function groupPaidByPerson(g){
+  const paid = {}; (g.people || []).forEach(p => paid[p.id] = 0);
+  (g.items || []).forEach(it => { if (it.kind !== "settlement" && it.payer in paid) paid[it.payer] += it.amount; });
+  return paid;
+}
+function groupByCategory(g){
+  const out = {};
+  (g.items || []).forEach(it => { if (it.kind === "settlement") return; const c = it.cat || "autre"; out[c] = (out[c] || 0) + it.amount; });
+  return out;
+}
+function groupDonutSvg(parts, total, centerLabel){
+  if (!total) return `<div class="empty">${I("chart-pie")}Aucune dépense</div>`;
+  let a0 = -Math.PI / 2, paths = "";
+  const R = 80, r = 50, cx = 85, cy = 85;
+  parts.forEach(([id, v, color, name]) => {
+    const a1 = a0 + v / total * Math.PI * 2 - (parts.length > 1 ? 0.01 : 0), large = a1 - a0 > Math.PI ? 1 : 0;
+    const p = (ang, rad) => `${(cx + rad * Math.cos(ang)).toFixed(2)} ${(cy + rad * Math.sin(ang)).toFixed(2)}`;
+    const d = parts.length === 1 ? `M ${cx} ${cy - R} A ${R} ${R} 0 1 1 ${cx - 0.01} ${cy - R} L ${cx - 0.01} ${cy - r} A ${r} ${r} 0 1 0 ${cx} ${cy - r} Z`
+      : `M ${p(a0, R)} A ${R} ${R} 0 ${large} 1 ${p(a1, R)} L ${p(a1, r)} A ${r} ${r} 0 ${large} 0 ${p(a0, r)} Z`;
+    paths += `<path d="${d}" fill="${color}"><title>${esc(name)} : ${fmt(v)}</title></path>`;
+    a0 += v / total * Math.PI * 2;
+  });
+  return `<svg viewBox="0 0 170 170" role="img" aria-label="Répartition">${paths}<text x="85" y="82" text-anchor="middle" font-size="11" fill="currentColor" opacity=".6">${esc(centerLabel || "Total")}</text><text x="85" y="99" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">${esc(fmt(total))}</text></svg>`;
+}
+function groupSummaryHtml(g, ctx){
+  const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
+  const bal = groupBalances(g), tr = settlements(bal), paidBy = groupPaidByPerson(g), byCat = groupByCategory(g);
+  const totalPaid = Object.values(paidBy).reduce((a, b) => a + b, 0);
+  const items = (g.items || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0));
+  const peopleParts = Object.entries(paidBy).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([id, v]) => [id, v, idColor(id), pn(id)]);
+  const catParts = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+
+  const charts = totalPaid ? `<div class="grid even" style="margin-bottom:16px">
+    <div><h3>Qui a payé</h3><div class="donut">${groupDonutSvg(peopleParts, totalPaid, "Payé")}<ul class="legend">${peopleParts.map(([id, v]) => `<li><span class="dot" style="background:${idColor(id)}"></span><span class="nm">${esc(pn(id))}</span><span>${Math.round(v / totalPaid * 100)} %</span></li>`).join("")}</ul></div></div>
+    <div><h3>Par catégorie</h3><ul class="legend" style="margin-top:8px">${catParts.map(([id, v]) => { const c = groupCatOf(id); return `<li><span class="dot" style="background:${c.color}"></span><span class="nm">${I(c.ico)} ${esc(c.name)}</span><span>${fmt(v)}</span></li>`; }).join("")}</ul></div>
+  </div>` : "";
+
+  const balCards = `<div class="people">${g.people.map(p => {
+    const v = bal[p.id] || 0, pay = g.payInfo && g.payInfo[p.id];
+    const canRename = ctx.editablePersonIds && ctx.editablePersonIds.has(p.id);
+    return `<div class="person"><span class="av" style="background:${idColor(p.id)}" aria-hidden="true">${esc((p.name[0] || "?").toUpperCase())}</span>
+      <span style="flex:1;min-width:0"><b>${esc(p.name)}</b>${canRename ? ` <button type="button" class="linkbtn" data-grename="${esc(p.id)}">renommer</button>` : ""}${pay ? `<br><span class="muted small">${esc(pay)}</span>` : ""}</span>
+      <span class="r ${v < -0.5 ? "over" : v > 0.5 ? "down" : "muted"}">${v >= 0 ? "+" : "−"}${fmt(Math.abs(v))}</span>
+      ${ctx.canConvert && v < -0.5 ? `<button type="button" class="x" data-gconvert="${esc(p.id)}" title="Enregistrer comme dépense perso">${I("wallet")}</button>` : ""}</div>`;
+  }).join("")}</div>`;
+
+  const settleHtml = tr.length ? `<div class="settle">${tr.map(t => `<div class="s"><p>${esc(pn(t.from))} doit <b>${fmt(t.amount)}</b> à ${esc(pn(t.to))}</p><button type="button" class="btn sm ghost" data-gisettle="${esc(t.from)}|${esc(t.to)}|${t.amount}">Réglé</button></div>`).join("")}</div>` : `<p class="muted small">Tout le monde est à l'équilibre.</p>`;
+
+  const itemsHtml = items.length ? `<ul class="items">${items.map(it => {
+    const isSettle = it.kind === "settlement";
+    const mine = !isSettle && ctx.editableItemIds && ctx.editableItemIds.has(it.id);
+    const withinWindow = mine && (Date.now() - (it.createdAt || 0) < 30 * 60e3);
+    const c = isSettle ? null : groupCatOf(it.cat);
+    const who = it.splits ? "répartition personnalisée" : (it.parts.length === g.people.length ? "tous" : it.parts.map(pn).map(esc).join(", "));
+    return `<li><span class="ic"${c ? ` style="background:${c.color}1F;color:${c.color}"` : ""}>${isSettle ? I("handshake") : I(c.ico)}</span>
+      ${it.photo ? `<img src="${esc(it.photo)}" class="thumb" alt="">` : ""}
+      <span class="tx">${esc(it.label || "Dépense")}${isSettle ? ` <span class="tag">remboursement</span>` : ""}<span>${fmtDay(it.date)} · payé par ${esc(pn(it.payer))} · pour ${who}${it.currency ? ` · ${fmtCur(it.origAmount, it.currency)}` : ""}</span></span>
+      <b>${fmt(it.amount)}</b>
+      ${!isSettle && (ctx.canDeleteAny || withinWindow) ? `<button type="button" class="x" data-giedit="${esc(it.id)}" aria-label="Modifier">${I("pencil")}</button>` : ""}
+      ${(ctx.canDeleteAny || withinWindow) ? `<button type="button" class="x" data-gidel="${esc(it.id)}" aria-label="Supprimer">${I("x")}</button>` : ""}</li>`;
+  }).join("")}</ul>` : `<p class="muted small">Aucune dépense pour l'instant.</p>`;
+
+  return { charts, balCards, settleHtml, itemsHtml, count: items.length };
+}
 function renderGroups(canEdit){
-  if (!state.groups.length) { $("#groups").innerHTML = `<div class="empty">${I("users")}Aucun groupe</div>`; return; }
-  $("#groups").innerHTML = `<ul class="items">` + state.groups.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(g => {
+  const showArch = pref.get("pc.gArch", "0") === "1";
+  $("#gArchToggle").hidden = !state.groups.some(g => g.archived);
+  $("#gShowArchived").checked = showArch;
+  const list = state.groups.filter(g => showArch || !g.archived);
+  if (!list.length) { $("#groups").innerHTML = `<div class="empty">${I("users")}Aucun groupe</div>`; return; }
+  $("#groups").innerHTML = `<ul class="items">` + list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(g => {
     const total = (g.items || []).reduce((s, it) => s + it.amount, 0), tr = settlements(groupBalances(g));
     const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
-    return `<li><span class="ic">${I("users")}</span><span class="tx">${esc(g.name)}<span>${g.people.length} participants · ${(g.items || []).length} dépenses · ${tr.length ? tr.slice(0, 2).map(t => `${esc(pn(t.from))} doit ${fmt(t.amount)} à ${esc(pn(t.to))}`).join(", ") + (tr.length > 2 ? "…" : "") : "équilibré"}</span></span>
+    return `<li><span class="ic">${I(g.locked ? "lock" : "users")}</span><span class="tx">${esc(g.name)}${g.archived ? ` <span class="tag">archivé</span>` : ""}<span>${g.people.length} participants · ${(g.items || []).length} dépenses · ${tr.length ? tr.slice(0, 2).map(t => `${esc(pn(t.from))} doit ${fmt(t.amount)} à ${esc(pn(t.to))}`).join(", ") + (tr.length > 2 ? "…" : "") : "équilibré"}</span></span>
       <b>${fmt(total)}</b><button class="x" data-grp="${esc(g.id)}" aria-label="Ouvrir ${esc(g.name)}">›</button></li>`;
   }).join("") + `</ul>`;
 }
+$("#gShowArchived").addEventListener("change", () => { pref.set("pc.gArch", $("#gShowArchived").checked ? "1" : "0"); renderGroups(state.canWrite); });
 const grpDlg = $("#grpDlg"); let grpId = null;
+let grpLastSig = null;
+function maybeRefreshGroupDlg(){
+  if (!grpDlg.open || !grpId) return;
+  const g = state.groups.find(x => x.id === grpId); if (!g) return;
+  const sig = (g.items || []).map(it => it.id).join(",") + "|" + (g.items || []).length + "|" + !!g.locked + "|" + !!g.archived;
+  if (sig === grpLastSig) return;
+  const wasSet = grpLastSig !== null;
+  grpLastSig = sig;
+  const active = document.activeElement;
+  if (active && $("#gpBody").contains(active) && ["INPUT","TEXTAREA","SELECT"].includes(active.tagName)) return;
+  renderGroupBody();
+  if (wasSet) toast("Le groupe a été mis à jour");
+}
 function openGroup(id){
-  grpId = id || null; const g = id ? state.groups.find(x => x.id === id) : null;
+  grpId = id || null; giEditId = null; grpLastSig = null; const g = id ? state.groups.find(x => x.id === id) : null;
   $("#grpTitle").textContent = g ? g.name : "Nouveau groupe";
   $("#gpName").value = g ? g.name : "";
   $("#gpPeople").value = g ? g.people.map(p => p.name).join(", ") : members().map(m => m.name).join(", ");
-  $("#gpDel").hidden = !g; renderGroupBody(); renderGroupLink(); grpDlg.showModal();
+  $("#gpDel").hidden = !g;
+  $("#gpMgmtField").hidden = !g;
+  $("#gpArchived").checked = !!(g && g.archived);
+  $("#gpLocked").checked = !!(g && g.locked);
+  renderGroupBody(); renderGroupLink(); grpDlg.showModal();
 }
 async function renderGroupLink(){
   const show = !!(grpId && state.mode === "shared");
@@ -3932,13 +4039,13 @@ async function renderGroupLink(){
   try {
     const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/groups/${encodeURIComponent(grpId)}/link`);
     $("#gpLinkNone").hidden = !!r.token; $("#gpLinkOn").hidden = !r.token;
-    if (r.token) $("#gpLinkUrl").value = r.url;
+    if (r.token) { $("#gpLinkUrl").value = r.url; $("#gpLinkQr").src = r.qr || ""; }
   } catch {}
 }
 async function rotateGroupLink(){
   try {
-    const r = await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/groups/${encodeURIComponent(grpId)}/link/rotate`);
-    $("#gpLinkNone").hidden = true; $("#gpLinkOn").hidden = false; $("#gpLinkUrl").value = r.url;
+    await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/groups/${encodeURIComponent(grpId)}/link/rotate`);
+    await renderGroupLink();
     toast("Lien généré");
   } catch (e) { toast(e.message); }
 }
@@ -3955,6 +4062,41 @@ $("#gpLinkRevoke").addEventListener("click", async () => {
 $("#gpLinkCopy").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText($("#gpLinkUrl").value); toast("Lien copié"); }
   catch { $("#gpLinkUrl").select(); toast("Sélectionnez et copiez avec Ctrl+C"); }
+});
+$("#gpArchived").addEventListener("change", async () => {
+  const g = state.groups.find(x => x.id === grpId); if (!g) return;
+  try { await store.upsert("groups", {...g, archived:$("#gpArchived").checked}); toast($("#gpArchived").checked ? "Groupe archivé" : "Groupe désarchivé"); } catch (e) { handleWriteError(e); }
+});
+$("#gpLocked").addEventListener("change", async () => {
+  const g = state.groups.find(x => x.id === grpId); if (!g) return;
+  try { await store.upsert("groups", {...g, locked:$("#gpLocked").checked}); toast($("#gpLocked").checked ? "Groupe verrouillé : plus d'ajout possible depuis le lien public" : "Groupe déverrouillé"); } catch (e) { handleWriteError(e); }
+});
+$("#gpDup").addEventListener("click", async () => {
+  const g = state.groups.find(x => x.id === grpId); if (!g) return;
+  try {
+    const people = g.people.map(p => ({id:uid().slice(0, 8), name:p.name}));
+    const id = await store.upsert("groups", {name:(g.name + " (copie)").slice(0, 40), people, items:[], createdAt:Date.now()});
+    toast("Groupe dupliqué"); openGroup(id);
+  } catch (e) { handleWriteError(e); }
+});
+async function pdfGroup(g){
+  const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
+  const bal = groupBalances(g), tr = settlements(bal);
+  const items = (g.items || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+  const total = items.filter(it => it.kind !== "settlement").reduce((s, it) => s + it.amount, 0);
+  const blocks = [
+    {h:"Soldes", kv:g.people.map(p => [p.name, (bal[p.id] >= 0 ? "+" : "−") + fmt(Math.abs(bal[p.id]))])},
+    {h:"Qui doit quoi", p:tr.length ? tr.map(t => `${pn(t.from)} doit ${fmt(t.amount)} à ${pn(t.to)}`).join(". ") + "." : "Tout le monde est à l'équilibre."},
+    {h:"Dépenses", table:{head:["Date","Libellé","Payé par","Montant"], widths:[.16,.44,.22,.18], align:["l","l","l","r"],
+      rows:items.map(it => [fmtDay(it.date, {day:"2-digit", month:"2-digit"}), (it.label || "Dépense") + (it.kind === "settlement" ? " (remboursement)" : ""), pn(it.payer), fmt(it.amount)])
+        .concat([Object.assign(["", "", "Total", fmt(total)], {bold:true})])}},
+  ];
+  const doc = await buildPdf("Récap · " + g.name, blocks);
+  return saveFile(`groupe-${g.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.pdf`, doc.output("blob"), "application/pdf");
+}
+$("#gpExport").addEventListener("click", async () => {
+  const g = state.groups.find(x => x.id === grpId); if (!g) return;
+  try { await pdfGroup(g); } catch { toast("Export impossible."); }
 });
 
 /* ================= Agenda : lien ICS ================= */
@@ -3984,19 +4126,53 @@ $("#icsRevoke").addEventListener("click", async () => {
   catch (e) { toast(e.message); }
 });
 
+async function compressGroupPhoto(file){
+  let c = await drawScaled(file, 640, .7), url = c.toDataURL("image/jpeg", .7), q = .7;
+  while (url.length > 90000 && q > 0.3) { q -= 0.12; url = c.toDataURL("image/jpeg", q); }
+  return url;
+}
+let giEditId = null, giPhoto = null;
+function giAddFormHtml(g){
+  return `<h3>${giEditId ? "Modifier la dépense" : "Ajouter une dépense"}</h3>
+    <div class="erow"><input class="inp" id="giLabel" maxlength="50" placeholder="ex. Courses du samedi"><input class="inp r w" id="giAmt" inputmode="decimal" placeholder="€" aria-label="Montant"></div>
+    <div class="chips" id="giCat" style="margin-bottom:8px">${GROUP_CATS.map(c => `<button type="button" class="chip" data-cat="${c.id}" aria-pressed="false">${I(c.ico)} ${esc(c.name)}</button>`).join("")}</div>
+    <div class="erow"><span class="cn small">Payé par</span><select id="giPayer">${g.people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></div>
+    <div class="chips" id="giParts" style="margin-bottom:10px">${g.people.map(p => `<label class="chip"><input type="checkbox" value="${esc(p.id)}" checked style="position:static;opacity:1;pointer-events:auto;accent-color:var(--accent)"> ${esc(p.name)}</label>`).join("")}</div>
+    <label class="check"><input type="checkbox" id="giCustom"> Montants personnalisés (au lieu de parts égales)</label>
+    <div id="giSplitBox" hidden style="margin:8px 0"></div>
+    <div class="erow" style="align-items:center">
+      <label class="btn sm ghost" for="giPhoto">${I("camera")} Photo<input type="file" id="giPhoto" accept="image/*" hidden></label>
+      <img id="giPhotoPrev" hidden style="width:38px;height:38px;border-radius:9px;object-fit:cover">
+      <button type="button" class="x" id="giPhotoDel" hidden aria-label="Retirer la photo">${I("x")}</button>
+    </div>
+    <p class="err" id="giErr" role="alert"></p>
+    <div class="actions" style="margin:10px 0 6px"><span class="muted small">Parts égales entre les personnes cochées, sauf montants personnalisés.</span>${giEditId ? `<button type="button" class="linkbtn" id="giCancel">Annuler</button>` : ""}<button type="button" class="btn sm push" id="giAdd">${giEditId ? "Enregistrer" : "Ajouter"}</button></div>`;
+}
+function renderGiSplitBox(g){
+  const box = $("#giSplitBox"); if (!box) return;
+  if (!$("#giCustom").checked) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  const checked = $$("#giParts input:checked").map(i => i.value);
+  box.innerHTML = checked.map(pid => `<div class="erow"><span class="cn small">${esc((g.people.find(p => p.id === pid) || {}).name || "?")}</span><input class="inp r w" data-splitfor="${esc(pid)}" inputmode="decimal" placeholder="€"></div>`).join("");
+}
 function renderGroupBody(){
   const g = grpId && state.groups.find(x => x.id === grpId), box = $("#gpBody");
   if (!g) { box.innerHTML = `<p class="muted small">Enregistrez le groupe pour ajouter des dépenses.</p>`; return; }
-  const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
-  const bal = groupBalances(g), tr = settlements(bal), items = (g.items || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  box.innerHTML = `<h3>Ajouter une dépense</h3>
-    <div class="erow"><input class="inp" id="giLabel" maxlength="50" placeholder="ex. Courses du samedi"><input class="inp r w" id="giAmt" inputmode="decimal" placeholder="€" aria-label="Montant"></div>
-    <div class="erow"><span class="cn small">Payé par</span><select id="giPayer">${g.people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></div>
-    <div class="chips" id="giParts" style="margin-bottom:10px">${g.people.map(p => `<label class="chip"><input type="checkbox" value="${esc(p.id)}" checked style="position:static;opacity:1;pointer-events:auto;accent-color:var(--accent)"> ${esc(p.name)}</label>`).join("")}</div>
-    <div class="actions" style="margin:0 0 6px"><span class="muted small">Partagé à parts égales entre les personnes cochées.</span><button type="button" class="btn sm push" id="giAdd">Ajouter</button></div>
-    <h3>Qui doit quoi</h3>${tr.length ? `<div class="settle">${tr.map(t => `<div class="s"><p>${esc(pn(t.from))} doit <b>${fmt(t.amount)}</b> à ${esc(pn(t.to))}</p><button class="btn sm ghost" data-gisettle="${esc(t.from)}|${esc(t.to)}|${t.amount}">Réglé</button></div>`).join("")}</div>` : `<p class="muted small">Tout le monde est à l'équilibre.</p>`}
-    <div class="people" style="margin-top:10px">${g.people.map(p => `<div class="person"><span>${esc(p.name)}</span><span class="${bal[p.id] < -0.5 ? "over" : bal[p.id] > 0.5 ? "down" : "muted"}">${bal[p.id] >= 0 ? "+" : "−"}${fmt(Math.abs(bal[p.id]))}</span></div>`).join("")}</div>
-    <h3>Dépenses (${items.length})</h3>${items.length ? `<ul class="items">${items.map(it => `<li><span class="tx">${esc(it.label || "Dépense")}<span>${fmtDay(it.date)} · payé par ${esc(pn(it.payer))} · pour ${it.parts.length === g.people.length ? "tous" : it.parts.map(pn).map(esc).join(", ")}</span></span><b>${fmt(it.amount)}</b><button class="x" data-gidel="${esc(it.id)}" aria-label="Supprimer">${I("x")}</button></li>`).join("")}</ul>` : `<p class="muted small">Aucune dépense pour l'instant.</p>`}`;
+  const s = groupSummaryHtml(g, {canDeleteAny:true});
+  box.innerHTML = giAddFormHtml(g) + s.charts + `<h3>Qui doit quoi</h3>${s.settleHtml}${s.balCards}<h3>Dépenses (${s.count})</h3>${s.itemsHtml}`;
+  $("#giCat").dataset.value = "autre";
+  giPhoto = null; $("#giPhotoPrev").hidden = true; $("#giPhotoDel").hidden = true;
+  if (giEditId) {
+    const it = (g.items || []).find(x => x.id === giEditId);
+    if (it) {
+      $("#giLabel").value = it.label || ""; $("#giAmt").value = toInput(it.amount);
+      $("#giCat").dataset.value = it.cat || "autre"; $("#giPayer").value = it.payer;
+      $$("#giParts input").forEach(i => i.checked = it.splits ? (i.value in it.splits) : it.parts.includes(i.value));
+      if (it.photo) { giPhoto = it.photo; $("#giPhotoPrev").src = it.photo; $("#giPhotoPrev").hidden = false; $("#giPhotoDel").hidden = false; }
+      if (it.splits) { $("#giCustom").checked = true; renderGiSplitBox(g); $$("#giSplitBox [data-splitfor]").forEach(i => { const v = it.splits[i.dataset.splitfor]; if (v) i.value = toInput(v); }); }
+    }
+  }
+  $$("#giCat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.cat === $("#giCat").dataset.value ? "true" : "false"));
 }
 $("#gpSave").addEventListener("click", async () => {
   const name = $("#gpName").value.trim(); if (!name) { $("#gpName").focus(); return; }
@@ -4006,30 +4182,70 @@ $("#gpSave").addEventListener("click", async () => {
   const people = names.map(n => (g && g.people.find(p => p.name.toLowerCase() === n.toLowerCase())) || {id:uid().slice(0, 8), name:n.slice(0, 30)});
   try {
     const id = await store.upsert("groups", {...(g || {items:[], createdAt:Date.now()}), name:name.slice(0, 40),  people});
-    grpId = id; $("#grpTitle").textContent = name; $("#gpDel").hidden = false; setTimeout(renderGroupBody, 50); renderGroupLink(); toast("Groupe enregistré");
+    grpId = id; $("#grpTitle").textContent = name; $("#gpDel").hidden = false; $("#gpMgmtField").hidden = false; setTimeout(renderGroupBody, 50); renderGroupLink(); toast("Groupe enregistré");
   } catch (e) { handleWriteError(e); }
 });
 $("#gpDel").addEventListener("click", async () => {
   const g = state.groups.find(x => x.id === grpId); if (!g) return;
   grpDlg.close(); try { await removeWithUndo("groups", g, "Groupe supprimé"); } catch (e) { handleWriteError(e); }
 });
+function readGiSplits(g, amt, parts){
+  if (!$("#giCustom").checked) return null;
+  const splits = {}; let sum = 0;
+  for (const i of $$("#giSplitBox [data-splitfor]")) {
+    const v = parseAmount(i.value); if (!(v > 0)) continue;
+    splits[i.dataset.splitfor] = v; sum += v;
+  }
+  if (!Object.keys(splits).length) { toast("Indiquez au moins un montant personnalisé."); return undefined; }
+  if (sum !== amt) { toast(`Les montants font ${toInput(sum) || 0} € ; il faut ${toInput(amt)} € au total.`); return undefined; }
+  return splits;
+}
 $("#gpBody").addEventListener("click", async e => {
   const g = state.groups.find(x => x.id === grpId); if (!g) return;
-  const save = async items => { await store.upsert("groups", {...g, items}); setTimeout(renderGroupBody, 30); };
+  const save = async items => { await store.upsert("groups", {...g, items}); giEditId = null; setTimeout(renderGroupBody, 30); };
   try {
+    const cat = e.target.closest("[data-cat]");
+    if (cat) { $("#giCat").dataset.value = cat.dataset.cat; $$("#giCat button").forEach(b => b.setAttribute("aria-pressed", b === cat ? "true" : "false")); return; }
+    if (e.target.id === "giPhotoDel") { giPhoto = null; $("#giPhotoPrev").hidden = true; $("#giPhotoDel").hidden = true; return; }
+    if (e.target.id === "giCancel") { giEditId = null; renderGroupBody(); return; }
     if (e.target.id === "giAdd") {
       const amt = parseAmount($("#giAmt").value); if (!(amt > 0)) { $("#giAmt").focus(); return; }
       const parts = $$("#giParts input:checked").map(i => i.value); if (!parts.length) { toast("Cochez au moins une personne."); return; }
-      await save((g.items || []).concat({id:uid().slice(0, 8), label:$("#giLabel").value.trim().slice(0, 50), amount:amt, payer:$("#giPayer").value, parts, date:todayStr()}).slice(-300));
+      const splits = readGiSplits(g, amt, parts); if (splits === undefined) return;
+      const label = $("#giLabel").value.trim().slice(0, 50), cat2 = $("#giCat").dataset.value || "autre", photo = giPhoto || null;
+      if (giEditId) {
+        const items = (g.items || []).map(it => it.id === giEditId ? {...it, label, amount:amt, cat:cat2, payer:$("#giPayer").value, parts, splits, photo} : it);
+        await save(items); toast("Dépense modifiée");
+      } else {
+        await save((g.items || []).concat({id:uid().slice(0, 8), label, amount:amt, cat:cat2, photo, payer:$("#giPayer").value, parts, splits, kind:"expense", date:todayStr(), createdAt:Date.now()}).slice(-300));
+        toast("Dépense ajoutée");
+      }
       return;
     }
-    const d = e.target.closest("[data-gidel]"); if (d) { await save((g.items || []).filter(it => it.id !== d.dataset.gidel)); return; }
+    const ed = e.target.closest("[data-giedit]"); if (ed) { giEditId = ed.dataset.giedit; renderGroupBody(); $("#giLabel").scrollIntoView({block:"center", behavior:"smooth"}); return; }
+    const d = e.target.closest("[data-gidel]"); if (d) { if (d.dataset.gidel === giEditId) giEditId = null; await save((g.items || []).filter(it => it.id !== d.dataset.gidel)); return; }
     const st = e.target.closest("[data-gisettle]");
-    if (st) { const [from, to, amt] = st.dataset.gisettle.split("|"); await save((g.items || []).concat({id:uid().slice(0, 8), label:"Remboursement", amount:+amt, payer:from, parts:[to], date:todayStr()})); }
+    if (st) { const [from, to, amt] = st.dataset.gisettle.split("|"); await save((g.items || []).concat({id:uid().slice(0, 8), label:"Remboursement", amount:+amt, payer:from, parts:[to], kind:"settlement", date:todayStr(), createdAt:Date.now()})); return; }
+    const cv = e.target.closest("[data-gconvert]");
+    if (cv) {
+      const bal = groupBalances(g), net = Math.round(-bal[cv.dataset.gconvert]);
+      if (!(net > 0)) return;
+      grpDlg.close();
+      openExpense(null, "expenses", {amount:net, label:"Groupe : " + g.name, date:todayStr()});
+    }
   } catch (err) { handleWriteError(err); }
 });
+$("#gpBody").addEventListener("change", async e => {
+  const g = state.groups.find(x => x.id === grpId); if (!g) return;
+  if (e.target.id === "giCustom" || e.target.closest("#giParts")) { renderGiSplitBox(g); return; }
+  if (e.target.id === "giPhoto") {
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+    try { giPhoto = await compressGroupPhoto(f); $("#giPhotoPrev").src = giPhoto; $("#giPhotoPrev").hidden = false; $("#giPhotoDel").hidden = false; }
+    catch { toast("Photo illisible."); }
+  }
+});
 $("#groups").addEventListener("click", e => { const b = e.target.closest("[data-grp]"); if (b) openGroup(b.dataset.grp); });
-$("#addGroup").addEventListener("click", () => openGroup(null));
+$("#addGroup").addEventListener("click", () => { giEditId = null; openGroup(null); });
 
 /* ================= Idées cadeaux ================= */
 function renderWishes(canEdit){
@@ -4820,6 +5036,8 @@ function badgeList(){
     {id:"argent_de_poche", icon:"hand-coins", name:"Éducation financière", desc:"Suivre l'argent de poche d'un enfant", xp:20, ok:state.kids.length >= 1},
     {id:"cagnotte_active", icon:"banknote", name:"Cagnotte commune", desc:"Faire un premier versement à la cagnotte", xp:15, ok:state.potmoves.length >= 1},
     {id:"journal_tenu", icon:"book-open", name:"Petites histoires", desc:"10 entrées au journal du foyer", xp:20, ok:state.journal.length >= 10},
+    {id:"groupe_cree", icon:"users", name:"Esprit d'équipe", desc:"Créer un groupe entre amis", xp:15, ok:state.groups.length >= 1},
+    {id:"groupe_solde", icon:"handshake", name:"Comptes réglés", desc:"Solder entièrement un groupe entre amis", xp:30, ok:state.groups.some(g => (g.items || []).length > 0 && Object.values(groupBalances(g)).every(v => Math.abs(v) < 1))},
   ];
 }
 function xpForLevel(n){ return 50 * n * (n + 1) / 2; }
@@ -5390,46 +5608,133 @@ function viewMfa(){
   formHandler("#fMfa", async v => { await api("POST", "/api/auth/mfa", v); await afterLogin(true); });
   bindLinks({goOut:async () => { await api("POST", "/api/auth/logout").catch(() => {}); viewLogin(); }});
 }
+function pubClaimsKey(token){ return "pc.pubclaims." + token; }
+function loadPubClaims(token){ try { return JSON.parse(localStorage.getItem(pubClaimsKey(token)) || "{}"); } catch { return {}; } }
+function savePubClaims(token, c){ try { localStorage.setItem(pubClaimsKey(token), JSON.stringify(c)); } catch {} }
+function addPubItemClaim(token, itemId, claimToken){ const c = loadPubClaims(token); c.items = c.items || {}; c.items[itemId] = {token:claimToken, createdAt:Date.now()}; savePubClaims(token, c); }
+function addPubPersonClaim(token, personId, claimToken){ const c = loadPubClaims(token); c.persons = c.persons || {}; c.persons[personId] = claimToken; savePubClaims(token, c); }
+let pubPollTimer = null, pubEditId = null;
 async function viewPublicGroup(token){
   authShow(`<p class="sub">Chargement…</p>`);
   let g;
   try { g = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); }
   catch (e) { authShow(`<h1>Lien introuvable</h1><p class="sub">${esc(e.message || "Ce lien n'est plus valable.")}</p>`); return; }
   renderPublicGroup(token, g);
+  clearInterval(pubPollTimer);
+  pubPollTimer = setInterval(async () => {
+    if (!authEl() || authEl().hidden) { clearInterval(pubPollTimer); return; }
+    const active = document.activeElement;
+    if (active && ["INPUT","TEXTAREA","SELECT"].includes(active.tagName)) return;
+    try { const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh); } catch {}
+  }, 20000);
 }
-function renderPublicGroup(token, g){
-  const myName = pref.get("pc.pubname", "");
-  const bal = groupBalances(g), tr = settlements(bal);
-  const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
-  const items = (g.items || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  authShow(`<h1>${esc(g.name)}</h1><p class="sub">Ajoutez votre part, sans compte.</p>
-    <h3>Qui doit quoi</h3>${tr.length ? `<div class="settle">${tr.map(t => `<div class="s"><p>${esc(pn(t.from))} doit <b>${fmt(t.amount)}</b> à ${esc(pn(t.to))}</p></div>`).join("")}</div>` : `<p class="sub">Tout le monde est à l'équilibre.</p>`}
-    <div class="people" style="margin:10px 0">${g.people.map(p => `<div class="person"><span>${esc(p.name)}</span><span class="${bal[p.id] < -0.5 ? "over" : bal[p.id] > 0.5 ? "down" : "muted"}">${bal[p.id] >= 0 ? "+" : "−"}${fmt(Math.abs(bal[p.id]))}</span></div>`).join("")}</div>
-    <h3>Dépenses (${items.length})</h3>${items.length ? `<ul class="items">${items.map(it => `<li><span class="tx">${esc(it.label || "Dépense")}<span>${fmtDay(it.date)} · payé par ${esc(pn(it.payer))}</span></span><b>${fmt(it.amount)}</b></li>`).join("")}</ul>` : `<p class="sub">Aucune dépense pour l'instant.</p>`}
-    <h3>Ajouter une dépense</h3>
+function pubAddFormHtml(g){
+  return `<h3>${pubEditId ? "Modifier votre dépense" : "Ajouter une dépense"}</h3>
     <form id="fPubAdd" novalidate>
       ${field("pname", "Votre nom")}
       ${field("plabel", "Libellé")}
+      <div class="chips" id="pCat" style="margin-bottom:8px">${GROUP_CATS.map(c => `<button type="button" class="chip" data-cat="${c.id}" aria-pressed="${c.id === "autre" ? "true" : "false"}">${I(c.ico)} ${esc(c.name)}</button>`).join("")}</div>
       ${field("pamt", "Montant (€)", "text", 'inputmode="decimal" placeholder="0,00"')}
+      <div class="field"><label class="check"><input type="checkbox" id="pFx"> Payé dans une autre devise</label>
+        <div class="erow" id="pFxBox" hidden style="margin-top:8px"><input class="inp" id="pCur" maxlength="6" placeholder="ex. USD" style="max-width:90px"><input class="inp r w" id="pRate" inputmode="decimal" placeholder="taux → EUR"></div></div>
+      <div class="erow" style="align-items:center">
+        <label class="btn sm ghost" for="pPhoto">${I("camera")} Photo<input type="file" id="pPhoto" accept="image/*" hidden></label>
+        <img id="pPhotoPrev" hidden style="width:38px;height:38px;border-radius:9px;object-fit:cover">
+        <button type="button" class="x" id="pPhotoDel" hidden aria-label="Retirer la photo">${I("x")}</button>
+      </div>
       <p class="err" id="pubErr"></p>
-      <button class="btn" type="submit">Ajouter</button>
-    </form>`);
-  $("#a_pname").value = myName;
-  $("#fPubAdd").addEventListener("submit", async e => {
+      <div class="actions">${pubEditId ? `<button type="button" class="linkbtn" id="pCancel">Annuler</button>` : ""}<button class="btn" type="submit">${pubEditId ? "Enregistrer" : "Ajouter"}</button></div>
+    </form>`;
+}
+function renderPublicGroup(token, g){
+  const claims = loadPubClaims(token);
+  const editableItemIds = new Set(Object.keys(claims.items || {}));
+  const editablePersonIds = new Set(Object.keys(claims.persons || {}));
+  const s = groupSummaryHtml(g, {editableItemIds, editablePersonIds, canDeleteAny:false, canConvert:false});
+  authShow(`<h1>${esc(g.name)}</h1><p class="sub">Ajoutez votre part, sans compte.</p>
+    ${g.locked ? `<div class="alert"><b>Groupe verrouillé</b> — plus aucun ajout n'est possible.</div>` : ""}
+    ${s.charts}
+    <h3>Qui doit quoi</h3>${s.settleHtml}
+    ${s.balCards}
+    <h3>Dépenses (${s.count})</h3>${s.itemsHtml}
+    <div id="pubAddBox">${g.locked ? "" : pubAddFormHtml(g)}</div>`);
+  pubPhoto = null;
+  wirePublicGroup(token, g);
+}
+let pubPhoto = null;
+function wirePublicGroup(token, g){
+  const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
+  $("#a_pname").value = pref.get("pc.pubname", "");
+  if (pubEditId) {
+    const it = g.items.find(x => x.id === pubEditId);
+    if (it) {
+      $("#a_plabel").value = it.label || ""; $("#a_pamt").value = toInput(it.amount);
+      $$("#pCat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.cat === (it.cat || "autre") ? "true" : "false"));
+      if (it.photo) { pubPhoto = it.photo; $("#pPhotoPrev").src = it.photo; $("#pPhotoPrev").hidden = false; $("#pPhotoDel").hidden = false; }
+    }
+  }
+  authEl().querySelectorAll("[data-cat]").forEach(b => b.addEventListener("click", () => { $$("#pCat button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false")); }));
+  const fx = $("#pFx"); if (fx) fx.addEventListener("change", () => { $("#pFxBox").hidden = !fx.checked; });
+  const ph = $("#pPhoto"); if (ph) ph.addEventListener("change", async e => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+    try { pubPhoto = await compressGroupPhoto(f); $("#pPhotoPrev").src = pubPhoto; $("#pPhotoPrev").hidden = false; $("#pPhotoDel").hidden = false; }
+    catch { toast("Photo illisible."); }
+  });
+  const phd = $("#pPhotoDel"); if (phd) phd.addEventListener("click", () => { pubPhoto = null; $("#pPhotoPrev").hidden = true; $("#pPhotoDel").hidden = true; });
+  const cancel = $("#pCancel"); if (cancel) cancel.addEventListener("click", () => { pubEditId = null; renderPublicGroup(token, g); });
+  const form = $("#fPubAdd");
+  if (form) form.addEventListener("submit", async e => {
     e.preventDefault();
     const name = $("#a_pname").value.trim().slice(0, 30), label = $("#a_plabel").value.trim().slice(0, 80), amt = parseAmount($("#a_pamt").value);
+    const cat = (authEl().querySelector('#pCat [aria-pressed="true"]') || {}).dataset?.cat || "autre";
+    const useFx = $("#pFx").checked, curCode = $("#pCur").value.trim().toUpperCase().slice(0, 6), rate = parseNum($("#pRate").value);
     if (!name) { $("#pubErr").textContent = "Indiquez votre nom."; return; }
     if (!label) { $("#pubErr").textContent = "Indiquez un libellé."; return; }
     if (!Number.isFinite(amt) || amt <= 0) { $("#pubErr").textContent = "Indiquez un montant."; return; }
+    if (useFx && !(rate > 0)) { $("#pubErr").textContent = "Indiquez le taux de change."; return; }
     pref.set("pc.pubname", name);
-    const existing = g.people.find(p => p.name.toLowerCase() === name.toLowerCase());
+    const body = { label, cat, photo:pubPhoto || null };
+    if (useFx) { body.currency = curCode || "USD"; body.rate = rate; body.origAmount = amt; body.amount = Math.round(amt * rate); }
+    else body.amount = amt;
     try {
-      await api("POST", `/api/public/group/${encodeURIComponent(token)}/item`, {label, amount:amt, payerId:existing ? existing.id : null, payerName:existing ? null : name});
+      if (pubEditId) {
+        await api("PATCH", `/api/public/group/${encodeURIComponent(token)}/item/${encodeURIComponent(pubEditId)}`, {...body, claimToken:loadPubClaims(token).items[pubEditId].token});
+        pubEditId = null; toast("Dépense modifiée");
+      } else {
+        const existing = g.people.find(p => p.name.toLowerCase() === name.toLowerCase());
+        const r = await api("POST", `/api/public/group/${encodeURIComponent(token)}/item`, {...body, payerId:existing ? existing.id : null, payerName:existing ? null : name});
+        addPubItemClaim(token, r.itemId, r.claimToken);
+        if (r.personClaimToken && r.personId) addPubPersonClaim(token, r.personId, r.personClaimToken);
+        toast("Dépense ajoutée");
+      }
       const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`);
       renderPublicGroup(token, fresh);
-      toast("Dépense ajoutée");
     } catch (err) { $("#pubErr").textContent = err.message || "Erreur."; }
   });
+  authEl().querySelectorAll("[data-giedit]").forEach(b => b.addEventListener("click", () => { pubEditId = b.dataset.giedit; renderPublicGroup(token, g); }));
+  authEl().querySelectorAll("[data-gidel]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Supprimer cette dépense ?")) return;
+    const claim = (loadPubClaims(token).items || {})[b.dataset.gidel];
+    try {
+      await api("DELETE", `/api/public/group/${encodeURIComponent(token)}/item/${encodeURIComponent(b.dataset.gidel)}?claimToken=${encodeURIComponent(claim ? claim.token : "")}`);
+      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh); toast("Dépense supprimée");
+    } catch (err) { toast(err.message); }
+  }));
+  authEl().querySelectorAll("[data-gisettle]").forEach(b => b.addEventListener("click", async () => {
+    const [from, to, amount] = b.dataset.gisettle.split("|");
+    try {
+      await api("POST", `/api/public/group/${encodeURIComponent(token)}/settle`, {from, to, amount:+amount});
+      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh); toast("Marqué comme réglé");
+    } catch (err) { toast(err.message); }
+  }));
+  authEl().querySelectorAll("[data-grename]").forEach(b => b.addEventListener("click", async () => {
+    const claim = (loadPubClaims(token).persons || {})[b.dataset.grename]; if (!claim) return;
+    const name = prompt("Nouveau nom :", pn(b.dataset.grename)); if (!name || !name.trim()) return;
+    try {
+      await api("POST", `/api/public/group/${encodeURIComponent(token)}/person`, {personId:b.dataset.grename, name:name.trim().slice(0, 30), claimToken:claim});
+      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh);
+    } catch (err) { toast(err.message); }
+  }));
 }
 async function viewInvite(token){
   let info; try { info = await api("GET", "/api/invites/" + encodeURIComponent(token)); } catch { info = {valid:false}; }
@@ -5633,6 +5938,7 @@ if (SRV) {
       const st = $("#status"); if (st && state.mode === "shared") st.textContent = (SV.role === "viewer" ? "Lecture seule" : SV.role === "owner" ? "Propriétaire" : "Contributeur") + " · " + (SV.me.name || SV.me.email) + (offq.get().length ? ` · ${offq.get().length} en attente` : "");
       renderAcctChip();
     }
+    maybeRefreshGroupDlg();
   };
   (async () => {
     const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite"), grp = params.get("groupe");

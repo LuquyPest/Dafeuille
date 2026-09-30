@@ -695,12 +695,13 @@ app.post("/api/public/group/:token/item", h(async (req, res) => {
   if (!label || !(amount > 0) || amount > 1000000) throw bad("bad_data", "Dépense invalide.");
   if (!payerId && !payerName) throw bad("bad_data", "Indiquez qui a payé.");
   if (currency && (!(rate > 0) || !(origAmount > 0))) throw bad("bad_data", "Taux de change invalide.");
-  let itemId, claimToken, personClaimToken;
+  let itemId, claimToken, personClaimToken, personId;
   await withGroupDoc(gl, async (c, g) => {
     if (g.locked) throw new HttpError(403, "locked", "Ce groupe est verrouillé.");
     let pid = payerId && g.people.some(p => p.id === payerId) ? payerId : null;
     let newPerson = false;
     if (!pid) { pid = uuid().slice(0, 8); g.people.push({ id: pid, name: payerName || "Ami" }); newPerson = true; }
+    personId = pid;
     const splits = checkSplits(req.body.splits, amount, g.people.map(p => p.id));
     itemId = uuid().slice(0, 8);
     g.items.push({ id: itemId, label, amount, cat, photo, currency, rate, origAmount, splits,
@@ -709,7 +710,7 @@ app.post("/api/public/group/:token/item", h(async (req, res) => {
     claimToken = await mintClaim(gl, "item", itemId);
     if (newPerson) personClaimToken = await mintClaim(gl, "person", pid);
   });
-  res.json({ ok: true, itemId, claimToken, personClaimToken: personClaimToken || null });
+  res.json({ ok: true, itemId, claimToken, personId, personClaimToken: personClaimToken || null });
 }));
 app.patch("/api/public/group/:token/item/:itemId", h(async (req, res) => {
   limit("pub-group:" + req.params.token, 40, 3600e3);
