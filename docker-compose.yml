@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Définissez DB_ADMIN_PASSWORD dans .env}
+      POSTGRES_DB: postgres
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Définissez DB_APP_PASSWORD dans .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/db-init.sh:/docker-entrypoint-initdb.d/10-dafeuille.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d potcommun"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - dafeuille_internal
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://potcommun:${DB_APP_PASSWORD}@db:5432/potcommun
+      PORT: "3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dafeuille.rule=Host(`dafeuille.daryu.xyz`)"
+      - "traefik.http.routers.dafeuille.entrypoints=websecure"
+      - "traefik.http.routers.dafeuille.tls.certresolver=letsencrypt"
+      - "traefik.http.services.dafeuille.loadbalancer.server.port=3000"
+    networks:
+      - proxy
+      - dafeuille_internal
+
+networks:
+  proxy:
+    external: true
+  dafeuille_internal:
+
+volumes:
+  pgdata:

@@ -1,0 +1,15 @@
+{
+  "name": "dafeuille-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DAFeuille — gestion des dépenses du foyer (serveur)",
+  "main": "src/server.js",
+  "scripts": { "start": "node src/server.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "express": "^4.21.2",
+    "nodemailer": "^6.9.16",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4"
+  }
+}

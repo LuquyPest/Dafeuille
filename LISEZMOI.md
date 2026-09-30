@@ -1,0 +1,101 @@
+# DAFeuille — installation sur un VPS Linux
+
+Application de gestion des dépenses du foyer : comptes personnels, plusieurs foyers par compte,
+invitations par e-mail, rôles, synchronisation en direct, installable sur l'écran d'accueil du téléphone.
+
+## Ce qu'il faut
+
+- Un VPS Linux (Debian 12 ou Ubuntu 22.04/24.04 conseillés), 1 Go de RAM suffit.
+- Un nom de domaine dont un enregistrement **A** pointe vers l'IP du VPS (ex. `budget.exemple.fr`).
+- Les ports 80 et 443 ouverts.
+- Un compte d'envoi d'e-mails SMTP (Brevo, Mailjet, OVH, Scaleway, Gmail avec mot de passe d'application…).
+  Pensez à configurer SPF et DKIM chez votre fournisseur, sinon les e-mails risquent d'arriver en spam.
+
+## Installation (Docker, le plus simple)
+
+```bash
+# 1. Installer Docker
+curl -fsSL https://get.docker.com | sh
+
+# 2. Copier ce dossier sur le serveur, puis :
+cd dafeuille-serveur
+cp .env.example .env
+nano .env            # domaine, mots de passe, SMTP
+
+# 3. Démarrer
+docker compose up -d --build
+docker compose logs -f app
+```
+
+Le certificat HTTPS est obtenu automatiquement par Caddy. Ouvrez `https://votre-domaine`, créez votre compte,
+confirmez l'e-mail, créez votre foyer. Sur le téléphone : menu du navigateur → **Ajouter à l'écran d'accueil**.
+
+Une fois les comptes de la famille créés, vous pouvez mettre `ALLOW_SIGNUP=false` : les nouvelles personnes
+ne pourront alors s'inscrire que par invitation (`docker compose up -d` pour appliquer).
+
+## Fonctionnement des comptes
+
+- **Inscription** : e-mail + mot de passe (10 caractères minimum), puis e-mail de confirmation obligatoire.
+- **Connexion** : mot de passe, ou lien de connexion reçu par e-mail (valable 15 min, usage unique).
+- **Double authentification** (Réglages › Mon compte) : application TOTP (Google Authenticator, Microsoft
+  Authenticator, 1Password…) + 10 codes de secours.
+- **Mot de passe oublié** : lien par e-mail valable 1 heure ; toutes les sessions sont alors fermées.
+- **Plusieurs foyers** : après connexion, la liste de vos foyers s'affiche ; « Changer » dans les réglages.
+
+## Rôles et invitations
+
+| Rôle | Voir | Modifier les données | Gérer les accès |
+|---|---|---|---|
+| Propriétaire | oui | oui | oui |
+| Contributeur | oui | oui | non |
+| Lecteur | oui | non | non |
+
+Réglages › Accès au foyer : saisissez l'e-mail et le rôle. La personne reçoit un e-mail :
+- sans compte, elle le crée depuis le lien et rejoint automatiquement le foyer après confirmation ;
+- avec un compte, elle se connecte et accepte l'invitation.
+Une invitation n'est utilisable que par l'adresse invitée, pendant 7 jours.
+
+Les « dépenses perso » restent visibles uniquement par leur auteur, même au sein du foyer.
+
+## Sécurité
+
+- **Cloisonnement des foyers à deux niveaux** : contrôle dans le code, et politique *Row Level Security*
+  dans PostgreSQL. L'app utilise un compte PostgreSQL dédié sans droits d'administration (créé par
+  `scripts/db-init.sh`) ; le serveur refuse de démarrer s'il est branché sur un compte administrateur.
+- Mots de passe hachés avec scrypt ; jetons de session et liens e-mail stockés sous forme d'empreinte.
+- Cookies `HttpOnly`, `Secure`, `SameSite` ; protection anti-CSRF ; limitation des tentatives de connexion.
+- En-têtes de sécurité (CSP, HSTS…), HTTPS automatique.
+
+## Sauvegardes
+
+```bash
+./scripts/backup.sh                       # crée backups/dafeuille-DATE.dump (garde 30 jours)
+crontab -e                                # tous les jours à 3 h :
+0 3 * * * cd /chemin/dafeuille-serveur && ./scripts/backup.sh >> backups/backup.log 2>&1
+```
+
+Restauration :
+```bash
+docker compose exec -T db pg_restore -U postgres -d potcommun --clean < backups/FICHIER.dump
+```
+Copiez régulièrement le dossier `backups` hors du VPS.
+
+## Mises à jour
+
+Remplacez les fichiers (sauf `.env`), puis `docker compose up -d --build`. Le schéma de la base se met à jour
+automatiquement au démarrage.
+
+## Sans Docker (optionnel)
+
+PostgreSQL 14+ et Node.js 20+ installés sur le système :
+1. Créer le compte et la base : exécuter le contenu SQL de `scripts/db-init.sh` avec `psql` (en tant que postgres).
+2. `npm ci --omit=dev`, puis lancer `node src/server.js` avec les variables de `.env` et
+   `DATABASE_URL=postgres://potcommun:MOTDEPASSE@localhost:5432/potcommun` (service systemd conseillé).
+3. Mettre un reverse proxy HTTPS devant le port 3000 (Caddy ou nginx ; pour nginx, désactiver le buffering
+   sur `/api/h/*/events` : `proxy_buffering off;`).
+
+## Dépannage
+
+- **Pas d'e-mail reçu** : `docker compose logs app` (erreurs SMTP, ou liens affichés si SMTP non configuré).
+- **« Le compte PostgreSQL de l'app est administrateur »** : la base a été créée sans le script d'initialisation ;
+  supprimez le volume (`docker compose down -v`, attention : efface les données) ou créez le compte à la main.
