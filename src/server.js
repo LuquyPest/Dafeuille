@@ -342,10 +342,10 @@ app.post("/api/auth/logout-all", requireUser, h(async (req, res) => {
 app.get("/api/me", h(async (req, res) => {
   if (!req.user) throw new HttpError(401, "unauthenticated", "Connexion requise.");
   if (req.sess.mfaPending) return res.json({ mfa: true, email: req.user.email });
-  const hs = (await q(`SELECT h.id, h.name, m.role, h.xp, h.badges, (SELECT count(*) FROM memberships x WHERE x.household_id = h.id)::int AS members
+  const hs = (await q(`SELECT h.id, h.name, m.role, (SELECT count(*) FROM memberships x WHERE x.household_id = h.id)::int AS members
     FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY h.created_at`, [req.user.id])).rows;
   const u = req.user;
-  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
+  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", xp: u.xp, badges: u.badges, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
 }));
 app.patch("/api/me", requireUser, h(async (req, res) => {
   const name = String(req.body.name || "").trim().slice(0, 60); if (!name) throw bad("bad_name", "Nom requis.");
@@ -431,7 +431,7 @@ app.delete("/api/h/:hid", requireUser, member, ownerOnly, h(async (req, res) => 
 /* ---------------------------- Membres et invitations ---------------------------- */
 const ROLE_FR = { owner: "propriétaire", contributor: "contributeur", viewer: "lecteur" };
 app.get("/api/h/:hid/members", requireUser, member, h(async (req, res) => {
-  const members = (await q(`SELECT u.id, u.email, u.name, u.avatar, u.bio, m.role FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.household_id = $1 ORDER BY m.created_at`, [req.params.hid])).rows;
+  const members = (await q(`SELECT u.id, u.email, u.name, u.avatar, u.bio, u.xp, u.badges, m.role FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.household_id = $1 ORDER BY m.created_at`, [req.params.hid])).rows;
   const invites = req.role === "owner" ? (await q("SELECT id, email, role, created_at, expires_at FROM invites WHERE household_id = $1 AND accepted_at IS NULL AND expires_at > now() ORDER BY created_at DESC", [req.params.hid])).rows : [];
   res.json({ role: req.role, members: members.map(m => ({ ...m, me: m.id === req.user.id })), invites });
 }));
@@ -511,23 +511,20 @@ const isTickets = c => c === "tickets" || c.includes("/_tickets/");
 
 app.get("/api/h/:hid/data", requireUser, member, h(async (req, res) => {
   const docs = await asUser(req.user.id, c => c.query("SELECT coll, id, data FROM docs WHERE household_id = $1 AND (owner = '' OR owner = $2) AND coll <> 'tickets' AND coll NOT LIKE '%/\\_tickets/%'", [req.params.hid, req.user.id]));
-  const hh = (await q("SELECT xp, badges FROM households WHERE id = $1", [req.params.hid])).rows[0] || { xp: 0, badges: [] };
-  res.json({ household: { id: req.params.hid, name: req.hname, role: req.role, xp: hh.xp, badges: hh.badges }, me: { id: req.user.id, email: req.user.email, name: req.user.name, avatar: req.user.avatar, bio: req.user.bio || "" }, docs: docs.rows });
+  res.json({ household: { id: req.params.hid, name: req.hname, role: req.role }, me: { id: req.user.id, email: req.user.email, name: req.user.name, avatar: req.user.avatar, bio: req.user.bio || "", xp: req.user.xp, badges: req.user.badges }, docs: docs.rows });
 }));
-app.post("/api/h/:hid/badges", requireUser, member, h(async (req, res) => {
-  if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+app.post("/api/me/badges", requireUser, h(async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids.filter(id => typeof id === "string" && BADGE_CATALOG[id]).slice(0, 50) : [];
-  const r = await q("SELECT xp, badges FROM households WHERE id = $1", [req.params.hid]);
-  const hh = r.rows[0]; if (!hh) throw new HttpError(404, "not_found", "Foyer introuvable.");
-  const have = new Set((hh.badges || []).map(b => b.id));
+  const have = new Set((req.user.badges || []).map(b => b.id));
   const fresh = ids.filter(id => !have.has(id));
+  let xp = req.user.xp, badges = req.user.badges || [];
   if (fresh.length) {
     const gained = fresh.reduce((s, id) => s + BADGE_CATALOG[id], 0);
-    const badges = (hh.badges || []).concat(fresh.map(id => ({ id, unlockedAt: new Date().toISOString() })));
-    await q("UPDATE households SET xp = xp + $2, badges = $3 WHERE id = $1", [req.params.hid, gained, JSON.stringify(badges)]);
-    hh.xp += gained; hh.badges = badges;
+    badges = badges.concat(fresh.map(id => ({ id, unlockedAt: new Date().toISOString() })));
+    await q("UPDATE users SET xp = xp + $2, badges = $3 WHERE id = $1", [req.user.id, gained, JSON.stringify(badges)]);
+    xp += gained;
   }
-  res.json({ xp: hh.xp, badges: hh.badges });
+  res.json({ xp, badges });
 }));
 app.get("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
   const coll = String(req.query.coll || ""), id = String(req.query.id || ""); docOwner(coll, req.user.id);
@@ -548,7 +545,7 @@ app.put("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
     const ins = await c.query(`INSERT INTO docs (household_id, coll, id, owner, data, updated_by) VALUES ($1,$2,$3,$4,$5,$6)
       ON CONFLICT (household_id, coll, id) DO UPDATE SET data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by WHERE docs.owner = EXCLUDED.owner
       RETURNING (xmax = 0) AS inserted`, [req.params.hid, coll, id, owner, json, req.user.id]);
-    if (xpGain && ins.rows[0] && ins.rows[0].inserted) await c.query("UPDATE households SET xp = xp + $2 WHERE id = $1", [req.params.hid, xpGain]);
+    if (xpGain && ins.rows[0] && ins.rows[0].inserted) await c.query("UPDATE users SET xp = xp + $2 WHERE id = $1", [req.user.id, xpGain]);
     const payload = { t: "doc", hid: req.params.hid, coll, id, owner, by: req.user.id };
     if (json.length < 7000 && !isTickets(coll)) payload.data = data; else payload.big = true;
     await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify(payload)]);

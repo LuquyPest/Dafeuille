@@ -4586,26 +4586,28 @@ function levelInfo(xp){
   const level = levelFromXp(xp), floor = xpForLevel(level - 1), ceil = xpForLevel(level);
   return {level, xp, floor, ceil, pct:Math.max(0, Math.min(100, Math.round((xp - floor) / (ceil - floor) * 100))), title:levelTitle(level)};
 }
+function renderBadgeGrid(el, unlockedIds){
+  const l = badgeList(), unlocked = unlockedIds ? new Set(unlockedIds) : null;
+  el.innerHTML = l.map(b => {
+    const ok = unlocked ? unlocked.has(b.id) : b.ok;
+    return `<div class="badge-it ${ok ? "" : "off"}" title="${esc(b.desc)}"><span class="tile">${I(b.icon)}</span><b>${esc(b.name)}</b><div class="muted" style="font-size:.7rem">${esc(b.desc)}</div><span class="xp">+${b.xp} XP</span></div>`;
+  }).join("");
+}
 function renderBadges(){
-  const l = badgeList(), unlocked = (typeof SV !== "undefined" && SV.hh) ? new Set((SV.hh.badges || []).map(b => b.id)) : null;
-  $$(".badges").forEach(el => {
-    el.innerHTML = l.map(b => {
-      const ok = unlocked ? unlocked.has(b.id) : b.ok;
-      return `<div class="badge-it ${ok ? "" : "off"}" title="${esc(b.desc)}"><span class="tile">${I(b.icon)}</span><b>${esc(b.name)}</b><div class="muted" style="font-size:.7rem">${esc(b.desc)}</div><span class="xp">+${b.xp} XP</span></div>`;
-    }).join("");
-  });
+  const mine = (typeof SV !== "undefined" && SV.me && SV.me.badges) ? SV.me.badges.map(b => b.id) : null;
+  const el = $("#badges"); if (el) renderBadgeGrid(el, mine);
 }
 async function checkNewBadges(){
   if (state.mode === "loading" || !state.loaded.expenses) return;
   const got = badgeList().filter(b => b.ok).map(b => b.id);
-  if (state.mode === "shared" && typeof SV !== "undefined" && SV.hh) {
-    const have = new Set((SV.hh.badges || []).map(b => b.id));
+  if (state.mode === "shared" && typeof SV !== "undefined" && SV.me) {
+    const have = new Set((SV.me.badges || []).map(b => b.id));
     const fresh = got.filter(id => !have.has(id));
     if (!fresh.length) return;
-    const beforeLevel = levelInfo(SV.hh.xp).level;
+    const beforeLevel = levelInfo(SV.me.xp).level;
     try {
-      const r = await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/badges`, {ids:fresh});
-      SV.hh.xp = r.xp; SV.hh.badges = r.badges;
+      const r = await api("POST", "/api/me/badges", {ids:fresh});
+      SV.me.xp = r.xp; SV.me.badges = r.badges;
       const b = badgeList().find(x => x.id === fresh[0]);
       toast(`Badge débloqué : ${b.name} (+${b.xp} XP)`);
       if (levelInfo(r.xp).level > beforeLevel) toast(`Niveau ${levelInfo(r.xp).level} atteint !`);
@@ -5292,7 +5294,7 @@ function renderAcctChip(){
   if (!SV.me) return;
   $("#acctAv").innerHTML = acctAvatarHtml(SV.me);
   $("#acctName").textContent = SV.me.name || SV.me.email;
-  const li = levelInfo(SV.hh ? SV.hh.xp : 0);
+  const li = levelInfo(SV.me.xp);
   $("#acctLevel").textContent = `Niveau ${li.level} · ${li.title}`;
 }
 let pfEditable = true, pfUser = null;
@@ -5305,11 +5307,11 @@ function openProfile(u, editable){
   $("#pfBio").value = u.bio || ""; $("#pfBioCount").textContent = `${(u.bio || "").length} / 280`;
   $("#pfBio").disabled = !pfEditable; $("#pfSaveBio").hidden = !pfEditable;
   $("#pfBannerBtn").hidden = $("#pfAvatarBtn").hidden = !pfEditable;
-  const li = levelInfo(SV.hh ? SV.hh.xp : 0);
+  const li = levelInfo(u.xp);
   $("#pfLevelName").textContent = `Niveau ${li.level} · ${li.title}`;
   $("#pfXpText").textContent = `${li.xp} XP · ${li.ceil - li.xp} XP avant le niveau ${li.level + 1}`;
   $("#pfBar").style.width = li.pct + "%";
-  renderBadges();
+  const pfBadgesEl = $("#pfBadges"); if (pfBadgesEl) renderBadgeGrid(pfBadgesEl, (u.badges || []).map(b => b.id));
   $("#profileDlg").showModal();
 }
 async function uploadProfileImage(file, kind){
