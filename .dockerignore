@@ -2,3 +2,5 @@ node_modules
 .env
 backups
 *.dump
+public-v2
+data

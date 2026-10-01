@@ -27,6 +27,7 @@ const CFG = {
   publicDir: env.PUBLIC_DIR || path.join(__dirname, "..", "public"),
   uploadsDir: env.UPLOADS_DIR || path.join(__dirname, "..", "data", "uploads"),
   privateDir: env.PRIVATE_DIR || path.join(__dirname, "..", "data", "private"),
+  webDir: env.WEB_DIR || path.join(__dirname, "..", "public-v2"),
 };
 CFG.vapid = env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY ? { pub: env.VAPID_PUBLIC_KEY, priv: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || "mailto:admin@localhost" } : null;
 if (CFG.vapid) webpush.setVapidDetails(CFG.vapid.subject, CFG.vapid.pub, CFG.vapid.priv);
@@ -1053,6 +1054,12 @@ app.use(express.static(CFG.publicDir, {
   index: false,
   setHeaders: (res, p) => { if (/sw\.js$|manifest\.json$/.test(p)) res.set("Cache-Control", "no-cache"); else res.set("Cache-Control", "public, max-age=86400"); }
 }));
+// Nouvelle interface React (build Vite) sous /beta, avec une CSP stricte : aucun script ni style inline,
+// aucune ressource tierce hors polices (le bundle est entièrement servi par le serveur).
+const STRICT_CSP = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+app.use("/beta", (req, res, next) => { res.set("Content-Security-Policy", STRICT_CSP); next(); },
+  express.static(CFG.webDir, { index: false, setHeaders: (res, p) => res.set("Cache-Control", /\/assets\//.test(p) ? "public, max-age=31536000, immutable" : "no-cache") }),
+  (req, res, next) => { if (req.method !== "GET") return next(); const f = path.join(CFG.webDir, "index.html"); fs.existsSync(f) ? res.set("Cache-Control", "no-cache").sendFile(f) : next(); });
 // Avatars, bannières, photos de groupes : noms de fichiers générés (UUID), non énumérables ;
 // même niveau de confidentialité qu'aujourd'hui (data-URL renvoyée telle quelle dans les réponses API).
 app.use("/uploads", express.static(CFG.uploadsDir, { index: false, maxAge: "1y", immutable: true }));

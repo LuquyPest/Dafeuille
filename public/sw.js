@@ -8,7 +8,12 @@ self.addEventListener("fetch", e => {
   // (un script chargé avec `integrity` ne doit pas être réémis via un fetch() du service worker :
   // la vérification SRI échoue silencieusement sur certains navigateurs quand elle passe par le SW)
   if (e.request.method !== "GET" || u.pathname.startsWith("/api/") || u.origin !== location.origin) return;
-  if (e.request.mode === "navigate") { e.respondWith(fetch(e.request).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put("/index.html", c)); return r; }).catch(() => caches.match("/index.html"))); return; }
+  if (e.request.mode === "navigate") {
+    // Une page de secours par interface : /beta (React) ou l'ancienne.
+    const key = u.pathname.startsWith("/beta") ? "/beta/" : "/index.html";
+    e.respondWith(fetch(e.request).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(key, c)); return r; }).catch(() => caches.match(key)));
+    return;
+  }
   e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request).then(r => { if (r.ok && u.origin === location.origin) { const c = r.clone(); caches.open(CACHE).then(x => x.put(e.request, c)); } return r; })));
 });
 

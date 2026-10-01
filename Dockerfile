@@ -1,3 +1,12 @@
+# 1) Build de l'interface React (Vite) — dépendances de dev uniquement dans cette étape
+FROM node:22-alpine AS web
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY web ./web
+RUN npm run build:web
+
+# 2) Image d'exécution : serveur + fichiers statiques, sans outils de build
 FROM node:22-alpine
 ENV NODE_ENV=production
 WORKDIR /app
@@ -6,6 +15,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY src ./src
 COPY sql ./sql
 COPY public ./public
+COPY --from=web /app/public-v2 ./public-v2
 RUN mkdir -p data/uploads data/private/tickets && chown -R node:node data
 USER node
 EXPOSE 3000
