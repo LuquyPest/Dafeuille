@@ -1933,16 +1933,23 @@ let flushing = false;
 async function flushQueue(){
   if (flushing || state.mode !== "shared" || !navigator.onLine) return;
   let q = offq.get(); if (!q.length) return;
-  flushing = true;
+  flushing = true; let sent = 0, refused = 0;
   try {
     while (q.length) {
       const op = q[0];
-      if (op.doc) await cap.db.doc(op.doc).set(op.data);
-      else if (op.op === "set") await cap.db.collection(op.path).doc(op.id).set(op.data);
-      else await cap.db.collection(op.path).doc(op.id).delete();
+      try {
+        if (op.doc) await cap.db.doc(op.doc).set(op.data);
+        else if (op.op === "set") await cap.db.collection(op.path).doc(op.id).set(op.data);
+        else await cap.db.collection(op.path).doc(op.id).delete();
+        sent++;
+      } catch (e) {
+        if (isNetErr(e) || (e && e.status === 429)) throw e;   // réseau ou limite : on réessaiera plus tard
+        refused++;   // refus définitif (droits retirés, donnée invalide) : on l'écarte pour ne pas bloquer la suite
+      }
       q.shift(); offq.set(q);
     }
-    enqueue.warned = false; toast("Modifications hors ligne envoyées");
+    enqueue.warned = false;
+    toast(refused ? `${sent} modification${sent > 1 ? "s" : ""} hors ligne envoyée${sent > 1 ? "s" : ""}, ${refused} refusée${refused > 1 ? "s" : ""} par le serveur` : "Modifications hors ligne envoyées");
   } catch {}
   finally { flushing = false; render(); }
 }
@@ -5817,7 +5824,9 @@ function makeServerDb(hid, docs){
     };
   };
   connect();
-  return {collection, doc};
+  // Données en mémoire (y compris les modifications de la session) : sert d'instantané hors ligne.
+  const dump = () => { const out = []; for (const [c, m] of cache) for (const [id, data] of m) out.push({coll:c, id, data}); return out; };
+  return {collection, doc, dump};
 }
 
 /* ---------- Écrans de connexion ---------- */
@@ -6119,7 +6128,22 @@ function viewHouseholds(msg){
   bindLinks({goOut:logout});
 }
 async function refreshMe(){ const r = await api("GET", "/api/me"); SV.me = r.user; SV.households = r.households; return r; }
-async function logout(){ await api("POST", "/api/auth/logout").catch(() => {}); try { localStorage.removeItem("pc.srv.hid"); } catch {} location.href = "/"; }
+async function logout(){ await api("POST", "/api/auth/logout").catch(() => {}); clearSnapshots(); try { localStorage.removeItem("pc.srv.hid"); } catch {} location.href = "/"; }
+/* ---------- Hors ligne : instantané local du foyer, pour démarrer sans réseau ---------- */
+const SNAP = hid => "pc.snap." + hid;
+function saveSnapshot(){
+  if (!SV.hh || !cap.db || typeof cap.db.dump !== "function") return;
+  try {
+    localStorage.setItem(SNAP(SV.hh.id), JSON.stringify({at:Date.now(), household:SV.hh, docs:cap.db.dump()}));
+    localStorage.setItem("pc.snap.me", JSON.stringify({user:SV.me, households:SV.households}));
+  } catch {}   // quota dépassé : tant pis, on garde le précédent
+}
+function loadSnapshot(hid){ try { return JSON.parse(localStorage.getItem(SNAP(hid)) || "null"); } catch { return null; } }
+function clearSnapshots(){ try { Object.keys(localStorage).filter(k => k.startsWith("pc.snap.")).forEach(k => localStorage.removeItem(k)); } catch {} }
+document.addEventListener("visibilitychange", () => { if (document.hidden) saveSnapshot(); });
+setInterval(saveSnapshot, 5 * 60e3);
+window.addEventListener("online", () => typeof render === "function" && render());
+window.addEventListener("offline", () => typeof render === "function" && render());
 async function afterLogin(fresh){
   await refreshMe();
   const inv = params.get("invite"); if (inv) return viewInvite(inv);
@@ -6130,7 +6154,13 @@ async function afterLogin(fresh){
 }
 async function openHousehold(hid){
   try {
-    const r = await api("GET", `/api/h/${encodeURIComponent(hid)}/data`);
+    let r;
+    try { r = await api("GET", `/api/h/${encodeURIComponent(hid)}/data`); }
+    catch (e) {
+      const snap = e.code === "unavailable" && loadSnapshot(hid); if (!snap) throw e;
+      r = {household:snap.household, docs:snap.docs}; SV.offlineSince = snap.at;
+      toast(`Hors ligne : données du ${new Date(snap.at).toLocaleString("fr-FR", {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"})}, vos modifications seront envoyées au retour du réseau`);
+    }
     SV.hh = r.household; SV.role = r.household.role; pref.set("pc.srv.hid", hid); clearParams();
     /* chaque foyer a son propre espace local (préférences d'appareil, file hors ligne) */
     window.__pcQ = "." + hid;
@@ -6139,6 +6169,7 @@ async function openHousehold(hid){
     const w = $(".wrap"); if (w) w.hidden = false;
     authResolve({db, user:{id:async () => SV.me.id, can:async () => SV.role !== "viewer"}});
     loadProgress().then(() => typeof render === "function" && render());
+    setTimeout(saveSnapshot, 1500);
   } catch (e) { viewHouseholds(e.message); }
 }
 
@@ -6284,7 +6315,7 @@ function initServerSettings(){
   $("#accDelGo").onclick = async () => {
     if (!confirm("Supprimer définitivement votre compte ? Cette action est irréversible.")) return;
     $("#accDelErr").textContent = "";
-    try { await api("DELETE", "/api/me", {password:$("#accDelPw").value}); location.href = "/"; }
+    try { await api("DELETE", "/api/me", {password:$("#accDelPw").value}); clearSnapshots(); location.href = "/"; }
     catch (e) { $("#accDelErr").textContent = e.message; }
   };
   const __openSettings = openSettings;
@@ -6487,7 +6518,7 @@ if (SRV) {
     __renderS();
     if (SV.hh) {
       if (!state.settings.houseName) $("#houseName").textContent = SV.hh.name;
-      const st = $("#status"); if (st && state.mode === "shared") st.textContent = (SV.role === "viewer" ? "Lecture seule" : SV.role === "owner" ? "Propriétaire" : "Contributeur") + " · " + (SV.me.name || SV.me.email) + (offq.get().length ? ` · ${offq.get().length} en attente` : "");
+      const st = $("#status"); if (st && state.mode === "shared") st.textContent = (navigator.onLine ? "" : "Hors ligne · ") + (SV.role === "viewer" ? "Lecture seule" : SV.role === "owner" ? "Propriétaire" : "Contributeur") + " · " + (SV.me.name || SV.me.email) + (offq.get().length ? ` · ${offq.get().length} en attente` : "");
       renderAcctChip();
     }
     maybeRefreshGroupDlg();
@@ -6507,6 +6538,9 @@ if (SRV) {
       await afterLogin(params.get("ok") === "verifie" && !params.get("h"));
     } catch (err) {
       if (inv) return viewInvite(inv);
+      // Pas de réseau mais un instantané de ce foyer sur l'appareil : on ouvre en mode hors ligne.
+      const lastHid = pref.get("pc.srv.hid", ""), meSnap = (() => { try { return JSON.parse(localStorage.getItem("pc.snap.me") || "null"); } catch { return null; } })();
+      if (err && err.code === "unavailable" && lastHid && meSnap && loadSnapshot(lastHid)) { SV.me = meSnap.user; SV.households = meSnap.households; return openHousehold(lastHid); }
       viewLogin(e === "lien" ? "Ce lien n'est plus valable. Demandez-en un nouveau." : params.get("ok") ? "" : "", false);
     }
   })();
