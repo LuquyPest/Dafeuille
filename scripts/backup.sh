@@ -1,10 +1,16 @@
 #!/bin/sh
-# Sauvegarde de la base (à lancer depuis le dossier du projet, idéalement chaque nuit via cron).
-# Restauration : docker compose exec -T db pg_restore -U postgres -d potcommun --clean < backups/FICHIER.dump
+# Sauvegarde de la base + des fichiers uploadés (à lancer depuis le dossier du projet, idéalement
+# chaque nuit via cron).
+# Restauration base : docker compose exec -T db pg_restore -U postgres -d potcommun --clean < backups/dafeuille-FICHIER.dump
+# Restauration fichiers : docker compose exec -T app tar xzf - -C /app/data/uploads < backups/uploads-FICHIER.tar.gz
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p backups
-F="backups/dafeuille-$(date +%Y-%m-%d_%H%M).dump"
+TS="$(date +%Y-%m-%d_%H%M)"
+F="backups/dafeuille-$TS.dump"
+U="backups/uploads-$TS.tar.gz"
 docker compose exec -T db pg_dump -U postgres -Fc potcommun > "$F"
+docker compose exec -T app tar czf - -C /app/data/uploads . > "$U"
 find backups -name 'dafeuille-*.dump' -mtime +30 -delete
-echo "Sauvegarde : $F"
+find backups -name 'uploads-*.tar.gz' -mtime +30 -delete
+echo "Sauvegarde : $F et $U"
