@@ -471,6 +471,14 @@ details.more[open] summary{margin-bottom:12px}
 .pf-av-edit{position:absolute;right:-4px;bottom:-4px;width:32px;height:32px}
 .pf-av-edit .i{width:15px;height:15px}
 .pf-level .bar{height:10px}
+.pf-prog{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:12px;display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center}
+.pf-streak{display:flex;align-items:center;gap:10px}
+.pf-flame{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,#F97316 16%,transparent);color:#F97316}
+.pf-flame.off{background:var(--sunk);color:var(--muted)}
+.pf-streak b{display:block;font-size:1.05rem}
+.pf-chart svg{width:100%;height:auto;display:block}
+.pf-chart .lbl{display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted);margin-top:2px}
+@media (max-width:520px){.pf-prog{grid-template-columns:1fr}}
 #acctChip .av,.pf-av{overflow:hidden}
 #acctChip .av img,.pf-av img,.podium .av img,#leaderBody .av img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .simrow{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:.9rem}
@@ -1264,6 +1272,11 @@ img.av{object-fit:cover}
         </div>
         <div class="bar"><span id="pfBar" style="background:var(--accent);width:0%"></span></div>
         <button type="button" class="btn sm ghost" id="pfLeaderBtn" style="margin-top:10px"><i data-i="trophy"></i>Classement</button>
+      </div>
+
+      <div class="pf-prog" id="pfProg" hidden>
+        <div class="pf-streak"><span class="pf-flame" id="pfFlame" aria-hidden="true"><i data-i="flame"></i></span><div><b id="pfStreak">—</b><span class="muted small" id="pfBest"></span></div></div>
+        <div class="pf-chart" id="pfChart"></div>
       </div>
 
       <div class="field" id="pfHideField" hidden style="margin-top:14px">
@@ -5285,6 +5298,13 @@ function badgeList(){
     {id:"journal_tenu", icon:"book-open", name:"Petites histoires", desc:"10 entrées au journal du foyer", xp:20, ok:state.journal.length >= 10},
     {id:"groupe_cree", icon:"users", name:"Esprit d'équipe", desc:"Créer un groupe entre amis", xp:15, ok:state.groups.length >= 1},
     {id:"groupe_solde", icon:"handshake", name:"Comptes réglés", desc:"Solder entièrement un groupe entre amis", xp:30, ok:state.groups.some(g => (g.items || []).length > 0 && Object.values(groupBalances(g)).every(v => Math.abs(v) < 1))},
+    {id:"groupes_3", icon:"users", name:"Bande d'amis", desc:"Créer 3 groupes entre amis", xp:30, ok:state.groups.length >= 3},
+    {id:"groupe_10", icon:"receipt", name:"Trésorier", desc:"10 dépenses dans des groupes entre amis", xp:25, ok:state.groups.reduce((n, g) => n + (g.items || []).filter(i => i.kind !== "settlement").length, 0) >= 10},
+    {id:"groupe_xxl", icon:"party-popper", name:"Grande tablée", desc:"Un groupe d'au moins 5 personnes", xp:20, ok:state.groups.some(g => (g.people || []).length >= 5)},
+    {id:"virement_1", icon:"repeat", name:"Premier virement", desc:"Enregistrer un virement entre comptes", xp:15, ok:state.transfers.length >= 1},
+    {id:"virement_10", icon:"landmark", name:"Gestionnaire de comptes", desc:"10 virements entre comptes", xp:30, ok:state.transfers.length >= 10},
+    {id:"serie_7", icon:"flame", name:"Sur sa lancée", desc:"Actif 7 jours d'affilée", xp:40, ok:(SRV && SV.progress ? SV.progress.best : 0) >= 7},
+    {id:"serie_30", icon:"flame", name:"Inarrêtable", desc:"Actif 30 jours d'affilée", xp:150, ok:(SRV && SV.progress ? SV.progress.best : 0) >= 30},
   ];
 }
 function xpForLevel(n){ return 50 * n * (n + 1) / 2; }
@@ -6071,6 +6091,7 @@ async function openHousehold(hid){
     const ael = authEl(); if (ael) ael.hidden = true;
     const w = $(".wrap"); if (w) w.hidden = false;
     authResolve({db, user:{id:async () => SV.me.id, can:async () => SV.role !== "viewer"}});
+    loadProgress().then(() => typeof render === "function" && render());
   } catch (e) { viewHouseholds(e.message); }
 }
 
@@ -6252,7 +6273,26 @@ function openProfile(u, editable){
   const pfBadgesEl = $("#pfBadges"); if (pfBadgesEl) renderBadgeGrid(pfBadgesEl, (u.badges || []).map(b => b.id));
   $("#pfHideField").hidden = !pfEditable;
   if (pfEditable) $("#pfHide").checked = !!u.hideFromLeaderboard;
+  $("#pfProg").hidden = !pfEditable;
+  if (pfEditable) { renderProgress(); loadProgress().then(renderProgress); }
   $("#profileDlg").showModal();
+}
+async function loadProgress(){ try { SV.progress = await api("GET", "/api/me/progress"); } catch {} return SV.progress; }
+setInterval(() => { if (SRV && SV.hh && !document.hidden) loadProgress(); }, 15 * 60e3);
+function renderProgress(){
+  const pr = SV.progress; if (!pr) return;
+  const s = pr.streak, plural = n => n > 1 ? "s" : "";
+  $("#pfFlame").classList.toggle("off", !s);
+  $("#pfStreak").textContent = s ? `${s} jour${plural(s)} d'affilée` : "Pas de série en cours";
+  $("#pfBest").textContent = (s && !pr.activeToday ? "Une action aujourd'hui pour la prolonger · " : "") + `record : ${pr.best} jour${plural(pr.best)}`;
+  // 12 barres hebdomadaires
+  const weeks = []; for (let i = 0; i < pr.days.length; i += 7) weeks.push(pr.days.slice(i, i + 7));
+  const tot = weeks.map(w => w.reduce((a, d) => a + d.xp, 0)), max = Math.max(1, ...tot), W = 240, H = 64, bw = W / weeks.length;
+  const bars = tot.map((v, i) => { const h = v ? Math.max(3, v / max * (H - 4)) : 2;
+    return `<rect x="${(i * bw + 2).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${(bw - 4).toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${v ? "var(--accent)" : "var(--line)"}"><title>Semaine du ${fmtDay(weeks[i][0].d)} : ${v} XP</title></rect>`; }).join("");
+  const sum = tot.reduce((a, b) => a + b, 0);
+  $("#pfChart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="XP gagnée par semaine sur 12 semaines : ${sum} XP au total, meilleure semaine ${Math.max(...tot)} XP">${bars}</svg>
+    <div class="lbl"><span>${fmtDay(weeks[0][0].d)}</span><span>XP par semaine</span><span>cette semaine</span></div>`;
 }
 async function uploadProfileImage(file, kind){
   const cfg = kind === "avatar" ? {max:480, q:.82, bytes:170000} : {max:1400, q:.78, bytes:250000};

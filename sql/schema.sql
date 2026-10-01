@@ -146,3 +146,13 @@ CREATE POLICY docs_update ON docs FOR UPDATE
 DROP POLICY IF EXISTS docs_delete ON docs;
 CREATE POLICY docs_delete ON docs FOR DELETE
   USING (pc_role(household_id) IN ('owner','contributor') AND (owner = '' OR owner = app_uid()));
+
+-- Historique des gains d'XP (graphique de progression, séries de jours actifs).
+CREATE TABLE IF NOT EXISTS xp_events (
+  id      bigserial PRIMARY KEY,
+  user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  at      timestamptz NOT NULL DEFAULT now(),
+  amount  integer NOT NULL,
+  reason  text NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS xp_events_user_at_idx ON xp_events (user_id, at);

@@ -387,6 +387,22 @@ app.patch("/api/me", requireUser, h(async (req, res) => {
   await q("UPDATE users SET name = $2, bio = $3, hide_from_leaderboard = $4 WHERE id = $1", [req.user.id, name, bio, hide]);
   res.json({ ok: true });
 }));
+// Progression : XP par jour sur 12 semaines + série de jours actifs (jour = fuseau Europe/Paris).
+// La série en cours tient encore si l'on n'a rien fait aujourd'hui mais qu'on était actif hier.
+app.get("/api/me/progress", requireUser, h(async (req, res) => {
+  const days = (await q(`SELECT to_char(d, 'YYYY-MM-DD') AS d, coalesce(sum(e.amount), 0)::int AS xp
+    FROM generate_series((now() AT TIME ZONE 'Europe/Paris')::date - 83, (now() AT TIME ZONE 'Europe/Paris')::date, interval '1 day') d
+    LEFT JOIN xp_events e ON e.user_id = $1 AND (e.at AT TIME ZONE 'Europe/Paris')::date = d::date
+    GROUP BY d ORDER BY d`, [req.user.id])).rows;
+  const active = (await q(`SELECT DISTINCT to_char((at AT TIME ZONE 'Europe/Paris')::date, 'YYYY-MM-DD') AS d FROM xp_events WHERE user_id = $1 AND at > now() - interval '400 days' ORDER BY d`, [req.user.id])).rows.map(r => Date.parse(r.d + "T00:00:00Z"));
+  const DAY = 86400e3, set = new Set(active);
+  let best = 0, run = 0, prev = null;
+  for (const t of active) { run = prev !== null && t - prev === DAY ? run + 1 : 1; best = Math.max(best, run); prev = t; }
+  const today = Date.parse(days[days.length - 1].d + "T00:00:00Z");
+  let streak = 0, t = set.has(today) ? today : today - DAY;
+  while (set.has(t)) { streak++; t -= DAY; }
+  res.json({ days, streak, best, activeToday: set.has(today) });
+}));
 app.get("/api/leaderboard", requireUser, h(async (req, res) => {
   const top = (await q("SELECT id, name, avatar, bio, badges, xp FROM users WHERE hide_from_leaderboard = false AND verified_at IS NOT NULL ORDER BY xp DESC, created_at ASC LIMIT 100")).rows;
   let me = null;
@@ -626,6 +642,7 @@ const BADGE_CATALOG = {
   planificateur: 20, facture_suivie: 20, projet_lance: 15, multi_projets: 40, equitable: 20, genereux: 15,
   vue_ensemble: 15, sous_controle: 15, bricoleur: 20, grand_routier: 30, garanties_ok: 15,
   argent_de_poche: 20, cagnotte_active: 15, journal_tenu: 20, groupe_cree: 15, groupe_solde: 30,
+  serie_7: 40, serie_30: 150, virement_1: 15, virement_10: 30, groupes_3: 30, groupe_10: 25, groupe_xxl: 20,
 };
 
 /* ---------------------------- Données du foyer ---------------------------- */
@@ -699,6 +716,7 @@ app.post("/api/me/badges", requireUser, h(async (req, res) => {
     const gained = fresh.reduce((s, id) => s + BADGE_CATALOG[id], 0);
     badges = badges.concat(fresh.map(id => ({ id, unlockedAt: new Date().toISOString() })));
     await q("UPDATE users SET xp = xp + $2, badges = $3 WHERE id = $1", [req.user.id, gained, JSON.stringify(badges)]);
+    for (const id of fresh) await q("INSERT INTO xp_events (user_id, amount, reason) VALUES ($1,$2,$3)", [req.user.id, BADGE_CATALOG[id], "badge:" + id]);
     xp += gained;
   }
   res.json({ xp, badges });
@@ -723,7 +741,10 @@ app.put("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
     const ins = await c.query(`INSERT INTO docs (household_id, coll, id, owner, data, updated_by) VALUES ($1,$2,$3,$4,$5,$6)
       ON CONFLICT (household_id, coll, id) DO UPDATE SET data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by WHERE docs.owner = EXCLUDED.owner
       RETURNING (xmax = 0) AS inserted`, [req.params.hid, coll, id, owner, json, req.user.id]);
-    if (xpGain && ins.rows[0] && ins.rows[0].inserted) await c.query("UPDATE users SET xp = xp + $2 WHERE id = $1", [req.user.id, xpGain]);
+    if (xpGain && ins.rows[0] && ins.rows[0].inserted) {
+      await c.query("UPDATE users SET xp = xp + $2 WHERE id = $1", [req.user.id, xpGain]);
+      await c.query("INSERT INTO xp_events (user_id, amount, reason) VALUES ($1,$2,$3)", [req.user.id, xpGain, coll]);
+    }
     const payload = { t: "doc", hid: req.params.hid, coll, id, owner, by: req.user.id };
     if (json.length < 7000 && !isTickets(coll)) payload.data = data; else payload.big = true;
     await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify(payload)]);
