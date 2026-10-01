@@ -138,7 +138,7 @@ setInterval(() => { const t = Date.now(); for (const [k, v] of hits) if (v.reset
 
 /* ============================ E-mails ============================ */
 const transport = CFG.smtp ? nodemailer.createTransport(CFG.smtp) : null;
-function mailHtml(title, text, btn, url) {
+function mailHtml(title, text, btn, url, footer = "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.") {
   return `<!doctype html><html><body style="margin:0;background:#F3F4F6;font-family:Arial,Helvetica,sans-serif;color:#0B1220">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px"><tr><td align="center">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#fff;border-radius:18px;padding:32px">
@@ -147,14 +147,14 @@ function mailHtml(title, text, btn, url) {
 <tr><td style="font-size:15px;line-height:1.55;color:#374151">${text}</td></tr>
 ${btn ? `<tr><td style="padding:24px 0"><a href="${esc(url)}" style="background:#0F766E;color:#fff;text-decoration:none;padding:13px 22px;border-radius:12px;font-weight:bold;display:inline-block">${esc(btn)}</a></td></tr>
 <tr><td style="font-size:12px;color:#6B7280;word-break:break-all">Si le bouton ne fonctionne pas : ${esc(url)}</td></tr>` : ""}
-<tr><td style="font-size:12px;color:#9CA3AF;padding-top:22px">Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.</td></tr>
+${footer ? `<tr><td style="font-size:12px;color:#9CA3AF;padding-top:22px">${footer}</td></tr>` : ""}
 </table></td></tr></table></body></html>`;
 }
-async function sendMail(to, subject, title, textHtml, btn, url) {
+async function sendMail(to, subject, title, textHtml, btn, url, footer) {
   const text = `${title}\n\n${textHtml.replace(/<[^>]+>/g, "")}\n\n${btn ? btn + " : " + url : ""}`;
   if (CFG.mailLog) fs.appendFileSync(CFG.mailLog, JSON.stringify({ to, subject, url }) + "\n");
   if (!transport) { console.log(`[e-mail] à ${to} — ${subject}${url ? " — " + url : ""}`); return; }
-  await transport.sendMail({ from: CFG.mailFrom, to, subject, text, html: mailHtml(title, textHtml, btn, url) });
+  await transport.sendMail({ from: CFG.mailFrom, to, subject, text, html: mailHtml(title, textHtml, btn, url, footer) });
 }
 
 /* ============================ Jetons e-mail ============================ */
@@ -378,7 +378,7 @@ app.get("/api/me", h(async (req, res) => {
   const hs = (await q(`SELECT h.id, h.name, m.role, (SELECT count(*) FROM memberships x WHERE x.household_id = h.id)::int AS members
     FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY h.created_at`, [req.user.id])).rows;
   const u = req.user;
-  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
+  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, weeklyDigest: u.weekly_digest, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
 }));
 app.patch("/api/me", requireUser, h(async (req, res) => {
   const name = String(req.body.name || "").trim().slice(0, 60); if (!name) throw bad("bad_name", "Nom requis.");
@@ -402,6 +402,14 @@ app.get("/api/me/progress", requireUser, h(async (req, res) => {
   let streak = 0, t = set.has(today) ? today : today - DAY;
   while (set.has(t)) { streak++; t -= DAY; }
   res.json({ days, streak, best, activeToday: set.has(today) });
+}));
+app.post("/api/me/digest", requireUser, h(async (req, res) => {
+  await q("UPDATE users SET weekly_digest = $2 WHERE id = $1", [req.user.id, !!req.body.on]); res.json({ ok: true });
+}));
+app.get("/api/digest/unsubscribe", h(async (req, res) => {
+  const t = String(req.query.t || "");
+  const r = t.length >= 20 ? (await q("UPDATE users SET weekly_digest = false WHERE id = $1 AND digest_token = $2 RETURNING id", [String(req.query.u || ""), t])).rows[0] : null;
+  res.redirect(r ? "/?ok=desabonne" : "/?e=lien");
 }));
 app.get("/api/leaderboard", requireUser, h(async (req, res) => {
   const top = (await q("SELECT id, name, avatar, bio, badges, xp FROM users WHERE hide_from_leaderboard = false AND verified_at IS NOT NULL ORDER BY xp DESC, created_at ASC LIMIT 100")).rows;
@@ -1019,6 +1027,71 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "server", message: "Erreur du serveur.", requestId: req.id });
 });
 
+/* ---------------------------- Résumé hebdomadaire par e-mail ---------------------------- */
+const BASE_CAT_NAMES = { courses: "Courses", logement: "Logement", energie: "Énergie", transport: "Transport", sante: "Santé", enfants: "Enfants", loisirs: "Loisirs", abonnements: "Abonnements", autre: "Autre" };
+const euro = c => (Math.round(c || 0) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+const ymd = d => d.toISOString().slice(0, 10);
+// Date "aujourd'hui" à Paris, en UTC minuit (pour l'arithmétique de jours)
+function parisToday() { return new Date(new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" }) + "T00:00:00Z"); }
+function isoWeek(d) { const t = new Date(d); t.setUTCDate(t.getUTCDate() + 3 - (t.getUTCDay() + 6) % 7); const y = t.getUTCFullYear(), w1 = new Date(Date.UTC(y, 0, 4)); return `${y}-W${String(1 + Math.round(((t - w1) / 864e5 - 3 + (w1.getUTCDay() + 6) % 7) / 7)).padStart(2, "0")}`; }
+async function digestFor(user) {
+  const today = parisToday(), dd = n => ymd(new Date(today.getTime() + n * 864e5));
+  const wkFrom = dd(-7), wkTo = dd(-1), prevFrom = dd(-14), monthStart = ymd(today).slice(0, 8) + "01", in7 = dd(7), t = ymd(today);
+  const hs = (await q("SELECT h.id, h.name FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY m.created_at", [user.id])).rows;
+  const blocks = [];
+  for (const hh of hs) {
+    const docs = (await asUser(user.id, c => c.query("SELECT coll, id, data FROM docs WHERE household_id = $1 AND coll IN ('expenses','factures','evenements','foyer') AND (owner = '' OR owner = $2)", [hh.id, user.id]))).rows;
+    const set = (docs.find(d => d.coll === "foyer" && d.id === "reglages") || {}).data || {};
+    const names = { ...BASE_CAT_NAMES }; (set.customCats || []).forEach(c => { names[c.id] = String(c.name || c.id); });
+    const exp = docs.filter(d => d.coll === "expenses").map(d => d.data).filter(e => e && e.date && e.amount > 0);
+    const sum = l => l.reduce((a, e) => a + e.amount, 0);
+    const week = exp.filter(e => e.date >= wkFrom && e.date <= wkTo), prev = exp.filter(e => e.date >= prevFrom && e.date < wkFrom), month = exp.filter(e => e.date >= monthStart && e.date <= t);
+    const byCat = {}; week.forEach(e => { byCat[e.cat || "autre"] = (byCat[e.cat || "autre"] || 0) + e.amount; });
+    const top = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const bills = docs.filter(d => d.coll === "factures").map(d => d.data).filter(x => x && !x.done && x.due && x.due >= t && x.due <= in7).sort((a, b) => a.due.localeCompare(b.due));
+    const evs = docs.filter(d => d.coll === "evenements").map(d => d.data).filter(e => e && e.date).map(e => {
+      let n = e.date; if (e.yearly) { n = t.slice(0, 4) + e.date.slice(4); if (n < t) n = (+t.slice(0, 4) + 1) + e.date.slice(4); } return { ...e, next: n };
+    }).filter(e => e.next >= t && e.next <= in7).sort((a, b) => a.next.localeCompare(b.next));
+    const catBudgets = set.catBudgets || {}, mByCat = {}; month.forEach(e => { mByCat[e.cat || "autre"] = (mByCat[e.cat || "autre"] || 0) + e.amount; });
+    const over = Object.entries(catBudgets).filter(([id, b]) => b > 0 && (mByCat[id] || 0) >= b * 0.8).map(([id, b]) => `${esc(names[id] || id)} : ${Math.round((mByCat[id] || 0) / b * 100)} %`);
+    if (!week.length && !prev.length && !bills.length && !evs.length) continue;
+    const ws = sum(week), ps = sum(prev), delta = ps ? Math.round((ws - ps) / ps * 100) : null;
+    const fmtD = s => new Date(s + "T12:00:00Z").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+    let h = `<p style="margin:18px 0 6px;font-weight:bold;font-size:16px">${esc(hh.name)}</p>`;
+    h += `<p style="margin:0">Dépenses de la semaine : <b>${euro(ws)}</b>${delta === null ? "" : ` <span style="color:${delta > 0 ? "#B45309" : "#047857"}">(${delta > 0 ? "+" : ""}${delta} % par rapport à la semaine d'avant)</span>`}</p>`;
+    if (top.length) h += `<p style="margin:4px 0 0;color:#4B5563">Surtout : ${top.map(([id, v]) => `${esc(names[id] || id)} ${euro(v)}`).join(" · ")}</p>`;
+    if (set.budget > 0) h += `<p style="margin:4px 0 0">Budget du mois : ${euro(sum(month))} dépensés sur ${euro(set.budget)} (reste ${euro(set.budget - sum(month))}).</p>`;
+    if (over.length) h += `<p style="margin:4px 0 0;color:#B45309">Budgets bientôt atteints ou dépassés : ${over.join(", ")}.</p>`;
+    if (bills.length) h += `<p style="margin:8px 0 0"><b>À payer cette semaine</b><br>${bills.slice(0, 6).map(x => `${fmtD(x.due)} — ${esc(x.title || "Facture")}${x.amount ? " (" + euro(x.amount) + ")" : ""}`).join("<br>")}</p>`;
+    if (evs.length) h += `<p style="margin:8px 0 0"><b>À venir</b><br>${evs.slice(0, 6).map(e => `${fmtD(e.next)} — ${esc(e.title || "Événement")}`).join("<br>")}</p>`;
+    blocks.push(h);
+  }
+  return blocks;
+}
+async function sendDigest(user, preview) {
+  const blocks = await digestFor(user);
+  if (!blocks.length) return false;
+  let tok = user.digest_token;
+  if (!tok) { tok = newToken(); await q("UPDATE users SET digest_token = $2 WHERE id = $1", [user.id, tok]); }
+  const unsub = `${CFG.appUrl}/api/digest/unsubscribe?u=${encodeURIComponent(user.id)}&t=${tok}`;
+  const body = `Bonjour ${esc(user.name || "")}, voici votre semaine.${blocks.join("")}<p style="margin:22px 0 0;font-size:12px;color:#9CA3AF">Vous recevez ce résumé chaque lundi. <a href="${esc(unsub)}" style="color:#6B7280">Ne plus le recevoir</a> (réactivable dans Réglages → Mon compte).</p>`;
+  if (preview) { console.log(mailHtml("Votre semaine", body, "Ouvrir DAFeuille", CFG.appUrl + "/", "")); return true; }
+  await sendMail(user.email, "Votre semaine sur " + CFG.appName, "Votre semaine", body, "Ouvrir DAFeuille", CFG.appUrl + "/", "");
+  return true;
+}
+// Chaque heure : le lundi à partir de 8 h (Paris), un envoi par semaine ISO et par personne au plus.
+async function runDigests() {
+  const now = new Date(), wd = now.toLocaleDateString("en-US", { weekday: "short", timeZone: "Europe/Paris" }), hr = +now.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Europe/Paris" });
+  if (wd !== "Mon" || hr < 8) return;
+  const week = isoWeek(parisToday());
+  for (const u of (await q("SELECT * FROM users WHERE weekly_digest AND verified_at IS NOT NULL AND (digest_sent_week IS DISTINCT FROM $1)", [week])).rows) {
+    try { await sendDigest(u); } catch (e) { logJson("error", { msg: "digest", userId: u.id, message: e.message }); }
+    await q("UPDATE users SET digest_sent_week = $2 WHERE id = $1", [u.id, week]);
+  }
+}
+setInterval(() => runDigests().catch(e => logJson("error", { msg: "runDigests", message: e.message })), 3600e3).unref();
+setTimeout(() => runDigests().catch(() => {}), 60e3).unref();
+
 /* ---------------------------- Nettoyage des fichiers orphelins ---------------------------- */
 function removeHouseholdFiles(hid) { fs.rm(path.join(CFG.privateDir, "tickets", path.basename(hid)), { recursive: true, force: true }, () => {}); }
 // Lit les documents d'un foyer au nom de chacun de ses membres (la RLS ne montre à chacun que le partagé
@@ -1076,6 +1149,9 @@ setInterval(() => {
   }
   // Maintenance ponctuelle : `node src/server.js --sweep` supprime les fichiers orphelins puis s'arrête.
   if (process.argv.includes("--sweep")) { console.log(`${await sweepOrphans()} fichier(s) orphelin(s) supprimé(s)`); process.exit(0); }
+  // Aperçu du résumé hebdo d'une personne, sans envoi : `node src/server.js --digest-preview <id ou e-mail>`
+  const dp = process.argv.indexOf("--digest-preview");
+  if (dp > 0) { const who = process.argv[dp + 1] || ""; const u = (await q("SELECT * FROM users WHERE id = $1 OR lower(email) = lower($1)", [who])).rows[0]; if (!u || !await sendDigest(u, true)) console.log("Rien à résumer."); process.exit(0); }
   await startListener();
   app.listen(CFG.port, () => console.log(`${CFG.appName} prêt sur le port ${CFG.port} (${CFG.appUrl})${transport ? "" : " — e-mails affichés dans la console (SMTP non configuré)"}`));
 })().catch(e => { console.error(e); process.exit(1); });

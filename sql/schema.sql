@@ -156,3 +156,8 @@ CREATE TABLE IF NOT EXISTS xp_events (
   reason  text NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS xp_events_user_at_idx ON xp_events (user_id, at);
+
+-- Résumé hebdomadaire par e-mail (activé par défaut, désactivable en un clic).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_digest boolean NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_sent_week text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_token text;

@@ -6174,6 +6174,7 @@ const ACC_HTML = `<div id="srvAcc">
     <div class="acc-row"><span class="tx" id="accMe"></span><button type="button" class="btn sm ghost" id="accOut">Se déconnecter</button></div>
     <div class="acc-row"><span class="tx">Double authentification<span id="accTotpState"></span></span><button type="button" class="btn sm ghost" id="accTotp"></button></div>
     <div id="accTotpBox" hidden></div>
+    <div class="acc-row"><label class="check" style="flex:1;margin:0"><input type="checkbox" id="accDigest"> Recevoir chaque lundi un résumé de la semaine par e-mail</label></div>
     <details class="more"><summary>Changer le mot de passe</summary>
       <input class="inp" id="accPw0" type="password" placeholder="Mot de passe actuel" autocomplete="current-password" style="margin-bottom:8px">
       <input class="inp" id="accPw1" type="password" placeholder="Nouveau mot de passe (10 caractères min.)" autocomplete="new-password" style="margin-bottom:8px">
@@ -6199,6 +6200,7 @@ async function renderAccess(){
   $("#accMe").innerHTML = `${esc(SV.me.name || "")}<span>${esc(SV.me.email)}</span>`;
   $("#accTotpState").textContent = SV.me.totp ? `Activée · ${SV.me.backupLeft} codes de secours restants` : "Désactivée";
   $("#accTotp").textContent = SV.me.totp ? "Désactiver" : "Activer";
+  $("#accDigest").checked = SV.me.weeklyDigest !== false;
   $("#accInvite").hidden = SV.role !== "owner";
   try {
     const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/members`);
@@ -6271,6 +6273,10 @@ function initServerSettings(){
     $("#accPwErr").textContent = "";
     try { await api("POST", "/api/me/password", {current:$("#accPw0").value, password:$("#accPw1").value}); $("#accPw0").value = $("#accPw1").value = ""; toast("Mot de passe modifié"); }
     catch (e) { $("#accPwErr").textContent = e.message; }
+  };
+  $("#accDigest").onchange = async e => {
+    try { await api("POST", "/api/me/digest", {on:e.target.checked}); SV.me.weeklyDigest = e.target.checked; toast(e.target.checked ? "Résumé hebdomadaire activé" : "Résumé hebdomadaire désactivé"); }
+    catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
   };
   let sessionsLoaded = false;
   $("#accSessions").parentElement.addEventListener("toggle", e => { if (e.target.open && !sessionsLoaded) { sessionsLoaded = true; renderSessions(); } });
@@ -6511,6 +6517,7 @@ if (SRV) {
   };
   (async () => {
     const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite"), grp = params.get("groupe");
+    if (params.get("ok") === "desabonne") setTimeout(() => toast("C'est noté : vous ne recevrez plus le résumé hebdomadaire."), 1200);
     if (grp) return viewPublicGroup(grp);
     if (reset) return viewReset(reset);
     try {
