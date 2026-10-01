@@ -72,6 +72,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 class HttpError extends Error { constructor(status, code, message) { super(message || code); this.status = status; this.code = code; } }
+function logJson(level, fields) { (level === "error" ? console.error : console.log)(JSON.stringify({ ts: new Date().toISOString(), level, ...fields })); }
 const bad = (code, msg) => new HttpError(400, code, msg);
 const h = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -209,6 +210,7 @@ app.use((req, res, next) => {
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
   });
   if (CFG.secure) res.set("Strict-Transport-Security", "max-age=31536000");
+  req.id = crypto.randomBytes(6).toString("base64url");
   next();
 });
 app.use(express.json({ limit: "400kb" }));
@@ -869,11 +871,14 @@ app.use(express.static(CFG.publicDir, {
 /* ---------------------------- Erreurs ---------------------------- */
 app.use("/api", (req, res) => res.status(404).json({ error: "not_found", message: "Introuvable." }));
 app.use((err, req, res, next) => {
-  if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
+  if (err instanceof HttpError) {
+    if (err.status >= 500) logJson("error", { reqId: req.id, method: req.method, path: req.path, status: err.status, code: err.code, message: err.message });
+    return res.status(err.status).json({ error: err.code, message: err.message });
+  }
   if (err && err.type === "entity.too.large") return res.status(413).json({ error: "quota_exceeded", message: "Données trop volumineuses." });
   if (err && err.code === "42501") return res.status(403).json({ error: "not_granted", message: "Accès refusé." });
-  console.error(err);
-  res.status(500).json({ error: "server", message: "Erreur du serveur." });
+  logJson("error", { reqId: req.id, method: req.method, path: req.path, userId: req.user && req.user.id, message: err && err.message, stack: err && err.stack });
+  res.status(500).json({ error: "server", message: "Erreur du serveur.", requestId: req.id });
 });
 
 /* ---------------------------- Nettoyage périodique ---------------------------- */
