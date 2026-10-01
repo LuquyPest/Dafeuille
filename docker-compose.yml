@@ -28,6 +28,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - uploads:/app/data/uploads
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.dafeuille.rule=Host(`dafeuille.daryu.xyz`)"
@@ -45,3 +47,4 @@ networks:
 
 volumes:
   pgdata:
+  uploads:

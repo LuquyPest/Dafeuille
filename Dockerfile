@@ -6,6 +6,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY src ./src
 COPY sql ./sql
 COPY public ./public
+RUN mkdir -p data/uploads && chown -R node:node data
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1

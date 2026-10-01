@@ -24,7 +24,9 @@ const CFG = {
   mailLog: env.MAIL_LOG_FILE || "",
   allowSignup: env.ALLOW_SIGNUP !== "false",
   publicDir: env.PUBLIC_DIR || path.join(__dirname, "..", "public"),
+  uploadsDir: env.UPLOADS_DIR || path.join(__dirname, "..", "data", "uploads"),
 };
+fs.mkdirSync(CFG.uploadsDir, { recursive: true });
 CFG.secure = CFG.appUrl.startsWith("https://");
 const SESSION_DAYS = 30;
 
@@ -396,17 +398,38 @@ function checkImageDataUrl(image, maxLen) {
   if (typeof image !== "string" || !/^data:image\/(png|jpe?g|webp);base64,/.test(image)) throw bad("bad_image", "Image invalide.");
   if (image.length > maxLen) throw new HttpError(413, "quota_exceeded", "Image trop volumineuse.");
 }
+// Stocke une image data-URL sur disque (volume dédié) au lieu de la garder en base — évite que la
+// base grossisse sans fin avec des avatars/bannières/photos en base64. Renvoie une URL /uploads/...
+const UPLOAD_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp" };
+function saveUpload(dataUrl) {
+  const m = /^data:(image\/(?:png|jpe?g|webp));base64,(.+)$/.exec(dataUrl);
+  if (!m) throw bad("bad_image", "Image invalide.");
+  const ext = UPLOAD_EXT[m[1]] || "jpg";
+  const name = `${uuid()}.${ext}`;
+  fs.writeFileSync(path.join(CFG.uploadsDir, name), Buffer.from(m[2], "base64"));
+  return `/uploads/${name}`;
+}
+function deleteUpload(url) {
+  if (typeof url !== "string" || !url.startsWith("/uploads/")) return;
+  const name = path.basename(url);
+  if (!/^[A-Za-z0-9-]+\.[a-z]+$/.test(name)) return;
+  fs.unlink(path.join(CFG.uploadsDir, name), () => {});
+}
 app.post("/api/me/avatar", requireUser, h(async (req, res) => {
   const image = req.body.image === null ? null : req.body.image;
   if (image !== null) checkImageDataUrl(image, 180000);
-  await q("UPDATE users SET avatar = $2 WHERE id = $1", [req.user.id, image]);
-  res.json({ ok: true });
+  const url = image !== null ? saveUpload(image) : null;
+  await q("UPDATE users SET avatar = $2 WHERE id = $1", [req.user.id, url]);
+  deleteUpload(req.user.avatar);
+  res.json({ ok: true, url });
 }));
 app.post("/api/me/banner", requireUser, h(async (req, res) => {
   const image = req.body.image === null ? null : req.body.image;
   if (image !== null) checkImageDataUrl(image, 260000);
-  await q("UPDATE users SET banner = $2 WHERE id = $1", [req.user.id, image]);
-  res.json({ ok: true });
+  const url = image !== null ? saveUpload(image) : null;
+  await q("UPDATE users SET banner = $2 WHERE id = $1", [req.user.id, url]);
+  deleteUpload(req.user.banner);
+  res.json({ ok: true, url });
 }));
 app.post("/api/me/password", requireUser, h(async (req, res) => {
   limit("pw:" + req.user.id, 6, 3600e3);
@@ -465,7 +488,7 @@ app.get("/api/me/export", requireUser, h(async (req, res) => {
   res.setHeader("Content-Disposition", `attachment; filename="dafeuille-export-${u.id}.json"`);
   res.json({
     exportedAt: new Date().toISOString(),
-    account: { id: u.id, email: u.email, name: u.name, bio: u.bio, avatar: u.avatar, banner: u.banner, xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, totpEnabled: u.totp_on, createdAt: u.created_at },
+    account: { id: u.id, email: u.email, name: u.name, bio: u.bio, avatar: u.avatar ? CFG.appUrl + u.avatar : null, banner: u.banner ? CFG.appUrl + u.banner : null, xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, totpEnabled: u.totp_on, createdAt: u.created_at },
     households: households.map(h => ({ id: h.id, name: h.name, role: h.role, joinedAt: h.joined_at })),
     documentsByHousehold,
     sessions,
@@ -486,6 +509,7 @@ app.delete("/api/me", requireUser, h(async (req, res) => {
     else await q("DELETE FROM docs WHERE household_id = $1 AND owner = $2", [m.household_id, req.user.id]);
   }
   await q("DELETE FROM users WHERE id = $1", [req.user.id]);
+  deleteUpload(req.user.avatar); deleteUpload(req.user.banner);
   setCookie(res, "", 0);
   res.json({ ok: true });
 }));
@@ -601,6 +625,14 @@ const isTickets = c => c === "tickets" || c.includes("/_tickets/");
 app.get("/api/h/:hid/data", requireUser, member, h(async (req, res) => {
   const docs = await asUser(req.user.id, c => c.query("SELECT coll, id, data FROM docs WHERE household_id = $1 AND (owner = '' OR owner = $2) AND coll <> 'tickets' AND coll NOT LIKE '%/\\_tickets/%'", [req.params.hid, req.user.id]));
   res.json({ household: { id: req.params.hid, name: req.hname, role: req.role }, me: { id: req.user.id, email: req.user.email, name: req.user.name, avatar: req.user.avatar, bio: req.user.bio || "", xp: req.user.xp, badges: req.user.badges }, docs: docs.rows });
+}));
+// Upload générique (photos de groupes entre amis, etc.) : stocke sur disque, renvoie l'URL à
+// intégrer dans le document — évite de faire grossir la base avec des data-URL en base64.
+app.post("/api/h/:hid/uploads", requireUser, member, h(async (req, res) => {
+  if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  limit("doc-write:" + req.user.id, 600, 10 * 60e3);
+  checkImageDataUrl(req.body.image, 120000);
+  res.json({ ok: true, url: saveUpload(req.body.image) });
 }));
 app.post("/api/me/badges", requireUser, h(async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids.filter(id => typeof id === "string" && BADGE_CATALOG[id]).slice(0, 50) : [];
@@ -778,8 +810,9 @@ app.post("/api/public/group/:token/item", h(async (req, res) => {
   const payerId = String(req.body.payerId || "").trim();
   const parts = Array.isArray(req.body.parts) ? req.body.parts.filter(p => typeof p === "string").slice(0, 50) : null;
   const cat = req.body.cat ? String(req.body.cat).slice(0, 20) : null;
-  const photo = req.body.photo != null ? String(req.body.photo) : null;
-  if (photo && (!/^data:image\/(png|jpe?g|webp);base64,/.test(photo) || photo.length > 120000)) throw bad("bad_data", "Photo invalide.");
+  const photoIn = req.body.photo != null ? String(req.body.photo) : null;
+  if (photoIn && (!/^data:image\/(png|jpe?g|webp);base64,/.test(photoIn) || photoIn.length > 120000)) throw bad("bad_data", "Photo invalide.");
+  const photo = photoIn ? saveUpload(photoIn) : null;
   const currency = req.body.currency ? String(req.body.currency).trim().toUpperCase().slice(0, 6) : null;
   if (currency && !/^[A-Z]{3}$/.test(currency)) throw bad("bad_data", "Code devise invalide.");
   const rate = currency ? +req.body.rate : null;
@@ -827,6 +860,8 @@ app.delete("/api/public/group/:token/item/:itemId", h(async (req, res) => {
   await checkClaim(gl, "item", req.params.itemId, req.query.claimToken);
   await withGroupDoc(gl, async (c, g) => {
     if (g.locked) throw new HttpError(403, "locked", "Ce groupe est verrouillé.");
+    const it = g.items.find(x => x.id === req.params.itemId);
+    if (it) deleteUpload(it.photo);
     g.items = g.items.filter(x => x.id !== req.params.itemId);
   });
   res.json({ ok: true });
@@ -890,6 +925,9 @@ app.use(express.static(CFG.publicDir, {
   index: false,
   setHeaders: (res, p) => { if (/sw\.js$|manifest\.json$/.test(p)) res.set("Cache-Control", "no-cache"); else res.set("Cache-Control", "public, max-age=86400"); }
 }));
+// Avatars, bannières, photos de groupes : noms de fichiers générés (UUID), non énumérables ;
+// même niveau de confidentialité qu'aujourd'hui (data-URL renvoyée telle quelle dans les réponses API).
+app.use("/uploads", express.static(CFG.uploadsDir, { index: false, maxAge: "1y", immutable: true }));
 
 /* ---------------------------- Erreurs ---------------------------- */
 app.use("/api", (req, res) => res.status(404).json({ error: "not_found", message: "Introuvable." }));

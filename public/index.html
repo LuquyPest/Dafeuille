@@ -4300,7 +4300,12 @@ $("#gpBody").addEventListener("click", async e => {
       const amt = parseAmount($("#giAmt").value); if (!(amt > 0)) { $("#giAmt").focus(); return; }
       const parts = $$("#giParts input:checked").map(i => i.value); if (!parts.length) { toast("Cochez au moins une personne."); return; }
       const splits = readGiSplits(g, amt, parts); if (splits === undefined) return;
-      const label = $("#giLabel").value.trim().slice(0, 50), cat2 = $("#giCat").dataset.value || "autre", photo = giPhoto || null;
+      const label = $("#giLabel").value.trim().slice(0, 50), cat2 = $("#giCat").dataset.value || "autre";
+      let photo = giPhoto || null;
+      if (photo && photo.startsWith("data:")) {
+        try { photo = (await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/uploads`, {image:photo})).url; }
+        catch { toast("Erreur lors de l'envoi de la photo."); return; }
+      }
       if (giEditId) {
         const items = (g.items || []).map(it => it.id === giEditId ? {...it, label, amount:amt, cat:cat2, payer:$("#giPayer").value, parts, splits, photo} : it);
         await save(items); toast("Dépense modifiée");
@@ -6054,8 +6059,8 @@ async function uploadProfileImage(file, kind){
   const cfg = kind === "avatar" ? {max:480, q:.82, bytes:170000} : {max:1400, q:.78, bytes:250000};
   let c = await drawScaled(file, cfg.max, cfg.q), url = c.toDataURL("image/jpeg", cfg.q), q = cfg.q;
   while (url.length > cfg.bytes && q > 0.35) { q -= 0.12; url = c.toDataURL("image/jpeg", q); }
-  await api("POST", `/api/me/${kind}`, {image:url});
-  if (kind === "avatar") SV.me.avatar = url; else SV.me.banner = url;
+  const r = await api("POST", `/api/me/${kind}`, {image:url});
+  if (kind === "avatar") SV.me.avatar = r.url; else SV.me.banner = r.url;
   openProfile(SV.me, true); renderAcctChip();
 }
 function initProfileDlg(){
