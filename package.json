@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "build:web": "vite build --config web/vite.config.js",
-    "dev:web": "vite --config web/vite.config.js"
+    "build:web": "vite build --config web/vite.config.mjs",
+    "dev:web": "vite --config web/vite.config.mjs"
   },
   "engines": {
     "node": ">=20"

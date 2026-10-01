@@ -603,3 +603,7 @@ img.av{object-fit:cover}
   #auth .acard.gpage .donut svg{width:190px;height:190px}
   #auth .acard.gpage .items{max-height:none}
 }
+
+/* ---- Interface React : classes remplaçant les anciens attributs style="" ---- */
+#acctChip .chev{width:16px;height:16px;color:var(--muted)}
+.pending-view{padding:28px;text-align:center}
