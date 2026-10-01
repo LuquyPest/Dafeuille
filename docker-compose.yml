@@ -30,6 +30,7 @@ services:
         condition: service_healthy
     volumes:
       - uploads:/app/data/uploads
+      - private:/app/data/private
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.dafeuille.rule=Host(`dafeuille.daryu.xyz`)"
@@ -48,3 +49,4 @@ networks:
 volumes:
   pgdata:
   uploads:
+  private:

@@ -1,18 +1,26 @@
 // Tests API bout-en-bout, contre un vrai serveur + une vraie base (pas de mocks).
 // Lancement : docker compose exec app npm test (DATABASE_URL et le serveur tournent déjà dans le conteneur).
 // Chaque test crée ses propres comptes jetables (apitest-*@example.com) et les nettoie à la fin.
-// Les signups sont soumis au même anti-abus que la prod (10/h/IP) : évitez de relancer la suite
-// plus de quelques fois par heure depuis la même machine.
+// Les comptes sont créés directement en base avec une session valide, pour ne pas consommer la limite
+// anti-abus des inscriptions (10/h/IP) ; seul le test « inscription puis connexion » passe par l'API.
 const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { Pool } = require("pg");
 
 const BASE = process.env.TEST_BASE_URL || "http://localhost:3000";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const createdEmails = [];
+const PASSWORD = "TestPass123!";
+const sha = s => crypto.createHash("sha256").update(s).digest("hex");
+let passHashP = null;
+const testPassHash = () => passHashP || (passHashP = new Promise((ok, ko) => {
+  const salt = crypto.randomBytes(16);
+  crypto.scrypt(PASSWORD, salt, 64, { N: 131072, r: 8, p: 1, maxmem: 192 * 1024 * 1024 }, (e, k) => e ? ko(e) : ok(`scrypt$131072$${salt.toString("base64")}$${k.toString("base64")}`));
+}));
+const newEmail = () => { const e = `apitest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`; createdEmails.push(e); return e; };
 
-function client() {
-  let cookie = "";
+function client(cookie = "") {
   return async (method, path, body) => {
     const headers = { "Content-Type": "application/json", "X-PC": "1" };
     if (cookie) headers.Cookie = cookie;
@@ -26,16 +34,20 @@ function client() {
 }
 
 async function freshVerifiedUser(name) {
-  const email = `apitest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
-  createdEmails.push(email);
-  const c = client();
-  const signup = await c("POST", "/api/auth/signup", { email, password: "TestPass123!", name });
-  assert.equal(signup.status, 200);
-  await pool.query("UPDATE users SET verified_at = now() WHERE email = $1", [email]);
-  const login = await c("POST", "/api/auth/login", { email, password: "TestPass123!" });
-  assert.equal(login.status, 200);
-  return { c, email };
+  const email = newEmail(), id = crypto.randomUUID(), tok = crypto.randomBytes(32).toString("base64url");
+  await pool.query("INSERT INTO users (id, email, name, pass, verified_at) VALUES ($1,$2,$3,$4, now())", [id, email, name, await testPassHash()]);
+  await pool.query("INSERT INTO sessions (id, user_id, expires_at) VALUES ($1,$2, now() + interval '1 hour')", [sha(tok), id]);
+  return { c: client("pc_sid=" + tok), email, id };
 }
+
+test("auth : inscription, confirmation puis connexion", async () => {
+  const email = newEmail(), c = client();
+  assert.equal((await c("POST", "/api/auth/signup", { email, password: PASSWORD, name: "Signup" })).status, 200);
+  assert.equal((await c("POST", "/api/auth/login", { email, password: PASSWORD })).status, 403);   // pas encore confirmé
+  await pool.query("UPDATE users SET verified_at = now() WHERE email = $1", [email]);
+  assert.equal((await c("POST", "/api/auth/login", { email, password: PASSWORD })).status, 200);
+  assert.equal((await c("GET", "/api/me")).data.user.email, email);
+});
 
 after(async () => {
   if (createdEmails.length) {
@@ -106,7 +118,7 @@ test("sessions : la session en cours ne peut être révoquée via l'endpoint, un
   const { c, email } = await freshVerifiedUser("Test Sessions");
   // deuxième connexion (même compte, autre « appareil »)
   const c2 = client();
-  const login2 = await c2("POST", "/api/auth/login", { email, password: "TestPass123!" });
+  const login2 = await c2("POST", "/api/auth/login", { email, password: PASSWORD });
   assert.equal(login2.status, 200);
 
   const list1 = await c("GET", "/api/me/sessions");
@@ -139,7 +151,7 @@ test("suppression de compte : mauvais mot de passe rejeté, bon mot de passe ré
   const bad = await c("DELETE", "/api/me", { password: "mauvais" });
   assert.equal(bad.status, 401);
 
-  const ok = await c("DELETE", "/api/me", { password: "TestPass123!" });
+  const ok = await c("DELETE", "/api/me", { password: PASSWORD });
   assert.equal(ok.status, 200);
 
   const row = await pool.query("SELECT 1 FROM users WHERE email = $1", [email]);
@@ -199,4 +211,21 @@ test("groupes publics : un code devise qui n'est pas 3 lettres ISO est refusé (
     body: JSON.stringify({ payerName: "Ami", label: "Resto", amount: 10, currency: "<img src=x onerror=alert(1)>", rate: 1, origAmount: 10 }),
   });
   assert.equal(addItem.status, 400);
+});
+
+test("tickets : photo partagée visible du foyer, privée visible de son seul auteur, invisible d'un étranger", async () => {
+  const { c: a } = await freshVerifiedUser("Ticket A");
+  const { c: b, email: emailB } = await freshVerifiedUser("Ticket B");
+  const { c: stranger } = await freshVerifiedUser("Ticket C");
+  const hid = (await a("POST", "/api/households", { name: "Foyer Tickets" })).data.id;
+  await pool.query("INSERT INTO memberships (household_id, user_id, role) SELECT $1, id, 'contributor' FROM users WHERE email = $2", [hid, emailB]);
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const shared = (await a("POST", `/api/h/${hid}/tickets`, { image: png })).data.id;
+  const priv = (await a("POST", `/api/h/${hid}/tickets`, { image: png, priv: true })).data.id;
+  assert.equal((await b("GET", `/api/h/${hid}/tickets/${shared}`)).status, 200);
+  assert.equal((await stranger("GET", `/api/h/${hid}/tickets/${shared}`)).status, 404);
+  assert.equal((await a("GET", `/api/h/${hid}/tickets/${priv}?priv=1`)).status, 200);
+  assert.equal((await b("GET", `/api/h/${hid}/tickets/${priv}?priv=1`)).status, 404);
+  assert.equal((await b("DELETE", `/api/h/${hid}/tickets/${shared}`)).status, 200);
+  assert.equal((await a("GET", `/api/h/${hid}/tickets/${shared}`)).status, 404);
 });

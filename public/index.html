@@ -273,6 +273,7 @@ h3{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em
 .empty .i{width:28px;height:28px;display:block;margin:0 auto 8px;opacity:.6}
 .empty strong{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
 .empty .btn{display:inline-flex;margin-top:12px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .tag{display:inline-block;font-size:.7rem;background:var(--accent-soft);color:var(--accent);border-radius:6px;padding:0 6px;margin-left:5px;font-weight:600;vertical-align:1px}
 .av{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;color:#fff;font-size:.62rem;font-weight:700;flex:none;margin-right:2px}
 
@@ -1704,6 +1705,10 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// Valeurs écrites par n'importe quel contributeur via l'API (réglages, catégories) puis injectées dans
+// des attributs style/src : on n'accepte qu'une couleur hexa ou une image de nos propres formats.
+const safeColor = (c, d = null) => typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : d;
+const safeImg = u => typeof u === "string" && (/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(u) || /^\/uploads\/[A-Za-z0-9-]+\.[a-z]{3,4}$/.test(u) || /^\/api\/h\/[A-Za-z0-9-]+\/tickets\/t[0-9a-f]{16}(\?priv=1)?$/.test(u)) ? u : "";
 const norm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[’']/g, " ");
 const daysBetween = (a, b) => Math.round((parseD(b) - parseD(a)) / 86400000);
 
@@ -1751,11 +1756,11 @@ const state = {
 LISTS.forEach(l => state[l] = []);
 const cap = {db:null, downloads:null, user:null};
 
-const allCats = () => BASE_CATS.concat(state.settings.customCats || []);
+const allCats = () => BASE_CATS.concat((state.settings.customCats || []).map(c => ({...c, color:safeColor(c.color, "#94A3B8")})));
 const CAT_ICONS = ["tag","shopping-cart","house","zap","car","stethoscope","baby","ticket","repeat","package","utensils","coffee","shirt","dog","cat","dumbbell","gamepad-2","graduation-cap","plane","gift","heart-pulse","briefcase","music","tv","bus","bike","hammer","scissors","book-open","wine","fuel","plug","smartphone","credit-card","landmark","piggy-bank"];
-const ci = (c, cls = "") => `<span class="catico${cls ? " " + cls : ""}" style="color:${c.color}">${I(c.ico || "tag")}</span>`;
+const ci = (c, cls = "") => `<span class="catico${cls ? " " + cls : ""}" style="color:${safeColor(c.color, "#94A3B8")}">${I(c.ico || "tag")}</span>`;
 const catOf = id => allCats().find(c => c.id === id) || BASE_CATS[BASE_CATS.length-1];
-const members = () => state.settings.members || [];
+const members = () => (state.settings.members || []).map(m => ({...m, color:safeColor(m.color), photo:safeImg(m.photo) || null}));
 const memberName = id => id === "pot" ? "Cagnotte" : (members().find(m => m.id === id) || {}).name || (id ? "Ancien membre" : "—");
 const memberColor = id => { if (id === "pot") return "#8C7A5B"; const ms = members(), i = ms.findIndex(m => m.id === id); return i < 0 ? "#7D8A86" : (ms[i].color || MEMBER_COLORS[i % MEMBER_COLORS.length]); };
 const LOGO = (() => { let n = 0; return (cls = "logo") => { const id = "lg" + (++n); return `<svg class="${cls}" viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--accent)"/><stop offset="1" style="stop-color:var(--accent-2)"/></linearGradient></defs><rect width="40" height="40" rx="12" fill="url(#${id})"/><path d="M10.5 29.5C8.8 17.8 17.2 8.4 31 8.9c.5 13.8-8.8 22.3-20.5 20.6z" fill="#fff"/><path d="M11.5 28.5 16.4 21.2 19.6 23.4 26 14.6" stroke="url(#${id})" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M10.5 29.5l-2.6 2.6" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>`; }; })();
@@ -1924,21 +1929,26 @@ function startLocal(){
 }
 
 /* ================= Tickets (photos compressées) ================= */
+/* En mode serveur : fichier privé côté serveur, le document ne garde que la référence (voir /api/h/:hid/tickets). */
 const ticketColl = priv => priv ? cap.db.doc("data/users/" + state.uid + "/_tickets").collection("t") : cap.db.collection("tickets");
+const ticketApi = (id, priv) => `/api/h/${encodeURIComponent(SV.hh.id)}/tickets${id ? "/" + encodeURIComponent(id) + (priv ? "?priv=1" : "") : ""}`;
 const tickets = {
   async put(dataUrl, priv){
+    if (state.mode === "shared" && SRV) return (await api("POST", ticketApi(), {image:dataUrl, priv:!!priv})).id;
     const id = "t" + uid().replace(/-/g, "").slice(0, 16);
     if (state.mode === "shared") await withRetry(() => ticketColl(priv).doc(id).set({data:dataUrl, createdAt:Date.now()}));
     else { try { localStorage.setItem("pc.ticket." + id, dataUrl); } catch { throw new Error("full"); } }
     return id;
   },
   async get(id, priv){
+    if (state.mode === "shared" && SRV) return ticketApi(id, priv);
     if (state.mode === "shared") { const s = await ticketColl(priv).doc(id).get(); return s.exists ? s.data().data : null; }
     return pref.get("pc.ticket." + id, null);
   },
   async del(id, priv){
     try {
-      if (state.mode === "shared") await ticketColl(priv).doc(id).delete();
+      if (state.mode === "shared" && SRV) await api("DELETE", ticketApi(id, priv));
+      else if (state.mode === "shared") await ticketColl(priv).doc(id).delete();
       else localStorage.removeItem("pc.ticket." + id);
     } catch {}
   }
@@ -3137,7 +3147,7 @@ const setDlg = $("#setDlg");
 let draft = null;
 function renderMembersEd(){
   $("#membersEd").innerHTML = draft.members.map((m, i) =>
-    `<div class="erow"><button type="button" class="swatch" data-mc="${i}" style="background:${m.color || MEMBER_COLORS[i % MEMBER_COLORS.length]}" aria-label="Changer la couleur de ${esc(m.name || "ce membre")}"></button><label class="swatch ph" data-mpl="${i}" title="Photo (appui long pour retirer)" style="${m.photo ? `background-image:url(${m.photo})` : ""}">${m.photo ? "" : I("camera")}<input type="file" accept="image/*" data-mp="${i}" hidden></label><input class="inp" data-mi="${i}" value="${esc(m.name)}" maxlength="30" placeholder="Prénom" aria-label="Nom du membre ${i+1}">
+    `<div class="erow"><button type="button" class="swatch" data-mc="${i}" style="background:${safeColor(m.color) || MEMBER_COLORS[i % MEMBER_COLORS.length]}" aria-label="Changer la couleur de ${esc(m.name || "ce membre")}"></button><label class="swatch ph" data-mpl="${i}" title="Photo (appui long pour retirer)" style="${safeImg(m.photo) ? `background-image:url('${safeImg(m.photo)}')` : ""}">${safeImg(m.photo) ? "" : I("camera")}<input type="file" accept="image/*" data-mp="${i}" hidden></label><input class="inp" data-mi="${i}" value="${esc(m.name)}" maxlength="30" placeholder="Prénom" aria-label="Nom du membre ${i+1}">
      <input class="inp r w" data-wi="${i}" value="${m.weight ?? ""}" inputmode="decimal" aria-label="Part de ${esc(m.name || "ce membre")} en %">
      <button type="button" class="iconbtn" data-rm="${i}" aria-label="Retirer ${esc(m.name || "ce membre")}" ${draft.members.length < 2 ? "disabled" : ""}>${I("x")}</button></div>`).join("");
   updateWHint(); renderMe();
@@ -3264,6 +3274,9 @@ $("#setForm").addEventListener("submit", async ev => {
   try {
     const envelopes = $("#fEnv").checked;
     const envStart = envelopes ? (state.settings.envelopes && state.settings.envStart ? state.settings.envStart : keyOf(new Date())) : null;
+    if (SRV && state.mode === "shared") for (const m of ms) if (m.photo && m.photo.startsWith("data:")) {
+      try { m.photo = (await api("POST", `/api/h/${encodeURIComponent(SV.hh.id)}/uploads`, {image:m.photo})).url; } catch {}
+    }
     await store.saveSettings({...state.settings, ...settingsV6Values(), ...settingsV8Values(), members:ms, budget, catBudgets, customCats:draft.customCats, favorites:draft.favorites, rates, alertPct, envelopes, envStart, weekBudgets, pot, onboarded:true});
     logAct("a modifié les réglages du foyer");
     setDlg.close(); toast("Réglages enregistrés");
@@ -5635,13 +5648,13 @@ const AUTH_CSS = `
 
 const authEl = () => $("#auth");
 let authResolve = null;
-function authShow(html, extraClass){
+function authShow(html, extraClass, autofocus = true){
   let el = authEl();
   if (!el) { el = document.createElement("div"); el.id = "auth"; document.body.appendChild(el); const st = document.createElement("style"); st.textContent = AUTH_CSS; document.head.appendChild(st); }
   el.hidden = false;
   const w = $(".wrap"); if (w) w.hidden = true;
   el.innerHTML = `<div class="acard${extraClass ? " " + extraClass : ""}"><div class="ahead">${LOGO()}<b>DAFeuille</b></div>${html}</div>`;
-  const f = el.querySelector("input"); if (f) setTimeout(() => f.focus(), 50);
+  const f = autofocus && el.querySelector("input"); if (f) setTimeout(() => f.focus(), 50);
 }
 const msgBox = (t, ok) => t ? `<div class="msg ${ok ? "ok" : "ko"}" role="${ok ? "status" : "alert"}">${esc(t)}</div>` : "";
 function formHandler(sel, fn){
@@ -5716,7 +5729,7 @@ function loadPubClaims(token){ try { return JSON.parse(localStorage.getItem(pubC
 function savePubClaims(token, c){ try { localStorage.setItem(pubClaimsKey(token), JSON.stringify(c)); } catch {} }
 function addPubItemClaim(token, itemId, claimToken){ const c = loadPubClaims(token); c.items = c.items || {}; c.items[itemId] = {token:claimToken, createdAt:Date.now()}; savePubClaims(token, c); }
 function addPubPersonClaim(token, personId, claimToken){ const c = loadPubClaims(token); c.persons = c.persons || {}; c.persons[personId] = claimToken; savePubClaims(token, c); }
-let pubPollTimer = null, pubEditId = null;
+let pubPollTimer = null, pubEditId = null, pubSig = "", pubLocked = false, pubG = null;
 async function viewPublicGroup(token){
   authShow(`<p class="sub">Chargement…</p>`);
   let g;
@@ -5724,11 +5737,15 @@ async function viewPublicGroup(token){
   catch (e) { authShow(`<h1>Lien introuvable</h1><p class="sub">${esc(e.message || "Ce lien n'est plus valable.")}</p>`); return; }
   renderPublicGroup(token, g);
   clearInterval(pubPollTimer);
+  // Rafraîchissement : seulement si le groupe a changé, et sans toucher au formulaire en cours de saisie
+  // ni déplacer le focus (lecteurs d'écran, navigation clavier).
   pubPollTimer = setInterval(async () => {
     if (!authEl() || authEl().hidden) { clearInterval(pubPollTimer); return; }
-    const active = document.activeElement;
-    if (active && ["INPUT","TEXTAREA","SELECT"].includes(active.tagName)) return;
-    try { const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh); } catch {}
+    if (document.hidden) return;
+    try {
+      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`);
+      if (JSON.stringify(fresh) !== pubSig) refreshPublicGroup(token, fresh, true);
+    } catch {}
   }, 20000);
 }
 function pubAddFormHtml(g){
@@ -5753,22 +5770,44 @@ function renderPublicGroup(token, g){
   const claims = loadPubClaims(token);
   const editableItemIds = new Set(Object.keys(claims.items || {}));
   const editablePersonIds = new Set(Object.keys(claims.persons || {}));
-  const s = groupSummaryHtml(g, {editableItemIds, editablePersonIds, canDeleteAny:false, canConvert:false});
+  const p = pubParts(token, g);
   authShow(`<h1>${esc(g.name)}</h1><p class="sub">Ajoutez votre part, sans compte.</p>
     ${g.locked ? `<div class="alert"><b>Groupe verrouillé</b> — plus aucun ajout n'est possible.</div>` : ""}
+    <p id="pubLive" class="sr-only" aria-live="polite"></p>
     <div class="gpage-grid">
+      <div class="gcol" id="pubLeft">${p.left}</div>
       <div class="gcol">
-        ${s.charts}
-        <h3>Qui doit quoi</h3>${s.settleHtml}
-        ${s.balCards}
-      </div>
-      <div class="gcol">
-        <h3>Dépenses (${s.count})</h3>${s.itemsHtml}
+        <div id="pubItems">${p.items}</div>
         <div id="pubAddBox">${g.locked ? "" : pubAddFormHtml(g)}</div>
       </div>
-    </div>`, "gpage");
-  pubPhoto = null;
+    </div>`, "gpage", false);
+  pubPhoto = null; pubSig = JSON.stringify(g); pubLocked = !!g.locked; pubG = g;
   wirePublicGroup(token, g);
+}
+function pubParts(token, g){
+  const claims = loadPubClaims(token);
+  const s = groupSummaryHtml(g, {editableItemIds:new Set(Object.keys(claims.items || {})), editablePersonIds:new Set(Object.keys(claims.persons || {})), canDeleteAny:false, canConvert:false});
+  return { left:`${s.charts}<h3>Qui doit quoi</h3>${s.settleHtml}${s.balCards}`, items:`<h3 tabindex="-1" id="pubItemsH">Dépenses (${s.count})</h3>${s.itemsHtml}`, count:s.count };
+}
+// Ne remplace que les listes : le formulaire (saisie, photo choisie) reste intact, et le focus est
+// rendu au même bouton s'il existe encore.
+function refreshPublicGroup(token, g, fromOthers){
+  if (!!g.locked !== pubLocked || !$("#pubLeft")) return renderPublicGroup(token, g);
+  const before = JSON.parse(pubSig || "{}"), act = document.activeElement;
+  const keyAttr = act && ["giedit","gidel","gisettle","grename"].find(k => act.dataset && act.dataset[k] != null);
+  const inLists = act && act.closest && act.closest("#pubLeft, #pubItems");
+  const p = pubParts(token, g);
+  $("#pubLeft").innerHTML = p.left; $("#pubItems").innerHTML = p.items;
+  pubSig = JSON.stringify(g); pubG = g;
+  wirePublicLists(token, g);
+  if (inLists) {
+    const back = keyAttr && authEl().querySelector(`[data-${keyAttr}="${CSS.escape(act.dataset[keyAttr])}"]`);
+    (back || $("#pubItemsH")).focus({preventScroll:true});
+  }
+  if (fromOthers) {
+    const n = (g.items || []).length - (before.items || []).length;
+    $("#pubLive").textContent = n > 0 ? `${n} nouvelle${n > 1 ? "s" : ""} dépense${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""} par d'autres participants.` : "Le groupe a été mis à jour.";
+  }
 }
 let pubPhoto = null;
 function wirePublicGroup(token, g){
@@ -5810,7 +5849,7 @@ function wirePublicGroup(token, g){
         await api("PATCH", `/api/public/group/${encodeURIComponent(token)}/item/${encodeURIComponent(pubEditId)}`, {...body, claimToken:loadPubClaims(token).items[pubEditId].token});
         pubEditId = null; toast("Dépense modifiée");
       } else {
-        const existing = g.people.find(p => p.name.toLowerCase() === name.toLowerCase());
+        const existing = (pubG || g).people.find(p => p.name.toLowerCase() === name.toLowerCase());
         const r = await api("POST", `/api/public/group/${encodeURIComponent(token)}/item`, {...body, payerId:existing ? existing.id : null, payerName:existing ? null : name});
         addPubItemClaim(token, r.itemId, r.claimToken);
         if (r.personClaimToken && r.personId) addPubPersonClaim(token, r.personId, r.personClaimToken);
@@ -5820,20 +5859,25 @@ function wirePublicGroup(token, g){
       renderPublicGroup(token, fresh);
     } catch (err) { $("#pubErr").textContent = err.message || "Erreur."; }
   });
+  wirePublicLists(token, g);
+}
+function wirePublicLists(token, g){
+  const pn = id => (g.people.find(p => p.id === id) || {}).name || "?";
+  const reload = async () => refreshPublicGroup(token, await api("GET", `/api/public/group/${encodeURIComponent(token)}`), false);
   authEl().querySelectorAll("[data-giedit]").forEach(b => b.addEventListener("click", () => { pubEditId = b.dataset.giedit; renderPublicGroup(token, g); }));
   authEl().querySelectorAll("[data-gidel]").forEach(b => b.addEventListener("click", async () => {
     if (!confirm("Supprimer cette dépense ?")) return;
     const claim = (loadPubClaims(token).items || {})[b.dataset.gidel];
     try {
       await api("DELETE", `/api/public/group/${encodeURIComponent(token)}/item/${encodeURIComponent(b.dataset.gidel)}?claimToken=${encodeURIComponent(claim ? claim.token : "")}`);
-      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh); toast("Dépense supprimée");
+      await reload(); toast("Dépense supprimée");
     } catch (err) { toast(err.message); }
   }));
   authEl().querySelectorAll("[data-gisettle]").forEach(b => b.addEventListener("click", async () => {
     const [from, to, amount] = b.dataset.gisettle.split("|");
     try {
       await api("POST", `/api/public/group/${encodeURIComponent(token)}/settle`, {from, to, amount:+amount});
-      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh); toast("Marqué comme réglé");
+      await reload(); toast("Marqué comme réglé");
     } catch (err) { toast(err.message); }
   }));
   authEl().querySelectorAll("[data-grename]").forEach(b => b.addEventListener("click", async () => {
@@ -5841,7 +5885,7 @@ function wirePublicGroup(token, g){
     const name = prompt("Nouveau nom :", pn(b.dataset.grename)); if (!name || !name.trim()) return;
     try {
       await api("POST", `/api/public/group/${encodeURIComponent(token)}/person`, {personId:b.dataset.grename, name:name.trim().slice(0, 30), claimToken:claim});
-      const fresh = await api("GET", `/api/public/group/${encodeURIComponent(token)}`); renderPublicGroup(token, fresh);
+      await reload();
     } catch (err) { toast(err.message); }
   }));
 }
@@ -6040,7 +6084,7 @@ function initServerSettings(){
 /* ---------- Profil de compte ---------- */
 function idColor(id){ let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return MEMBER_COLORS[h % MEMBER_COLORS.length]; }
 function acctAvatarHtml(u){
-  if (u && u.avatar) return `<img src="${u.avatar}" alt="">`;
+  if (u && safeImg(u.avatar)) return `<img src="${safeImg(u.avatar)}" alt="">`;
   const initial = esc(((u && (u.name || u.email)) || "?")[0].toUpperCase());
   return `<span style="background:${idColor(u ? u.id : "")};width:100%;height:100%;display:grid;place-items:center;color:#fff;font-weight:700">${initial}</span>`;
 }
@@ -6056,7 +6100,7 @@ let pfEditable = true, pfUser = null;
 function openProfile(u, editable){
   pfUser = u; pfEditable = !!editable && u.id === SV.me.id;
   $("#pfAvatar").innerHTML = acctAvatarHtml(u);
-  $("#pfBanner").style.backgroundImage = u.banner ? `url(${u.banner})` : "";
+  $("#pfBanner").style.backgroundImage = safeImg(u.banner) ? `url("${safeImg(u.banner)}")` : "";
   $("#pfName").textContent = u.name || u.email;
   $("#pfEmail").textContent = u.email || "";
   $("#pfBio").value = u.bio || ""; $("#pfBioCount").textContent = `${(u.bio || "").length} / 280`;

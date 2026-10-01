@@ -25,8 +25,10 @@ const CFG = {
   allowSignup: env.ALLOW_SIGNUP !== "false",
   publicDir: env.PUBLIC_DIR || path.join(__dirname, "..", "public"),
   uploadsDir: env.UPLOADS_DIR || path.join(__dirname, "..", "data", "uploads"),
+  privateDir: env.PRIVATE_DIR || path.join(__dirname, "..", "data", "private"),
 };
 fs.mkdirSync(CFG.uploadsDir, { recursive: true });
+fs.mkdirSync(path.join(CFG.privateDir, "tickets"), { recursive: true });
 CFG.secure = CFG.appUrl.startsWith("https://");
 const SESSION_DAYS = 30;
 
@@ -519,7 +521,7 @@ app.delete("/api/me", requireUser, h(async (req, res) => {
   const blocking = memberships.filter(m => m.member_count > 1 && m.role === "owner" && m.owner_count <= 1);
   if (blocking.length) throw bad("owner_conflict", `Nommez un autre propriétaire ou quittez ces foyers avant de supprimer votre compte : ${blocking.map(m => m.name).join(", ")}.`);
   for (const m of memberships) {
-    if (m.member_count <= 1) await q("DELETE FROM households WHERE id = $1", [m.household_id]);
+    if (m.member_count <= 1) { await q("DELETE FROM households WHERE id = $1", [m.household_id]); removeHouseholdFiles(m.household_id); }
     else await q("DELETE FROM docs WHERE household_id = $1 AND owner = $2", [m.household_id, req.user.id]);
   }
   await q("DELETE FROM users WHERE id = $1", [req.user.id]);
@@ -552,7 +554,7 @@ app.patch("/api/h/:hid", requireUser, member, ownerOnly, h(async (req, res) => {
 }));
 app.delete("/api/h/:hid", requireUser, member, ownerOnly, h(async (req, res) => {
   if (String(req.body.confirm || "") !== req.hname) throw bad("confirm", "Tapez exactement le nom du foyer pour confirmer.");
-  await q("DELETE FROM households WHERE id = $1", [req.params.hid]); notifyAccess(req.params.hid); res.json({ ok: true });
+  await q("DELETE FROM households WHERE id = $1", [req.params.hid]); removeHouseholdFiles(req.params.hid); notifyAccess(req.params.hid); res.json({ ok: true });
 }));
 
 /* ---------------------------- Membres et invitations ---------------------------- */
@@ -642,6 +644,46 @@ app.get("/api/h/:hid/data", requireUser, member, h(async (req, res) => {
 }));
 // Upload générique (photos de groupes entre amis, etc.) : stocke sur disque, renvoie l'URL à
 // intégrer dans le document — évite de faire grossir la base avec des data-URL en base64.
+/* Photos de tickets/reçus : fichiers PRIVÉS (hors /uploads, jamais servis en statique). Le document
+   en base ne garde que le nom du fichier ; l'accès passe par la RLS (asUser) avant toute lecture. */
+const TICKET_ID_RE = /^t[0-9a-f]{16}$/;
+const ticketColl = (priv, uid) => priv ? `data/users/${uid}/_tickets/t` : "tickets";
+const ticketPath = (hid, file) => path.join(CFG.privateDir, "tickets", hid, path.basename(file));
+app.post("/api/h/:hid/tickets", requireUser, member, h(async (req, res) => {
+  if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  limit("doc-write:" + req.user.id, 600, 10 * 60e3);
+  checkImageDataUrl(req.body.image, 380000);
+  const m = /^data:(image\/(?:png|jpe?g|webp));base64,(.+)$/.exec(req.body.image);
+  const priv = !!req.body.priv, coll = ticketColl(priv, req.user.id), owner = priv ? req.user.id : "";
+  const id = "t" + crypto.randomBytes(8).toString("hex"), file = `${id}.${UPLOAD_EXT[m[1]] || "jpg"}`;
+  fs.mkdirSync(path.join(CFG.privateDir, "tickets", req.params.hid), { recursive: true });
+  fs.writeFileSync(ticketPath(req.params.hid, file), Buffer.from(m[2], "base64"));
+  await asUser(req.user.id, c => c.query("INSERT INTO docs (household_id, coll, id, owner, data, updated_by) VALUES ($1,$2,$3,$4,$5,$6)",
+    [req.params.hid, coll, id, owner, JSON.stringify({ file, createdAt: Date.now() }), req.user.id]));
+  res.json({ ok: true, id });
+}));
+async function ticketDoc(req) {
+  if (!TICKET_ID_RE.test(req.params.id)) throw bad("bad_id", "Identifiant invalide.");
+  const coll = ticketColl(req.query.priv === "1", req.user.id);
+  const r = await asUser(req.user.id, c => c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = $2 AND id = $3", [req.params.hid, coll, req.params.id]));
+  if (!r.rows[0]) throw new HttpError(404, "not_found", "Introuvable.");
+  return { coll, data: r.rows[0].data };
+}
+app.get("/api/h/:hid/tickets/:id", requireUser, member, h(async (req, res) => {
+  const { data } = await ticketDoc(req);
+  res.set("Cache-Control", "private, max-age=86400");
+  if (data.file) return res.sendFile(ticketPath(req.params.hid, data.file), err => { if (err && !res.headersSent) res.status(404).end(); });
+  const m = /^data:(image\/(?:png|jpe?g|webp));base64,(.+)$/.exec(data.data || "");   // anciens tickets encore en base64
+  if (!m) throw new HttpError(404, "not_found", "Introuvable.");
+  res.type(m[1]).send(Buffer.from(m[2], "base64"));
+}));
+app.delete("/api/h/:hid/tickets/:id", requireUser, member, h(async (req, res) => {
+  if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  const { coll, data } = await ticketDoc(req);
+  await asUser(req.user.id, c => c.query("DELETE FROM docs WHERE household_id = $1 AND coll = $2 AND id = $3", [req.params.hid, coll, req.params.id]));
+  if (data.file) fs.unlink(ticketPath(req.params.hid, data.file), () => {});
+  res.json({ ok: true });
+}));
 app.post("/api/h/:hid/uploads", requireUser, member, h(async (req, res) => {
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
   limit("doc-write:" + req.user.id, 600, 10 * 60e3);
@@ -956,6 +998,47 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "server", message: "Erreur du serveur.", requestId: req.id });
 });
 
+/* ---------------------------- Nettoyage des fichiers orphelins ---------------------------- */
+function removeHouseholdFiles(hid) { fs.rm(path.join(CFG.privateDir, "tickets", path.basename(hid)), { recursive: true, force: true }, () => {}); }
+// Lit les documents d'un foyer au nom de chacun de ses membres (la RLS ne montre à chacun que le partagé
+// + ses propres données privées) : à eux tous, ils couvrent tout ce qui est encore atteignable.
+async function referencedFiles() {
+  const uploads = new Set(), tickets = new Map();
+  for (const u of (await q("SELECT avatar, banner FROM users")).rows) for (const v of [u.avatar, u.banner]) if (v) uploads.add(path.basename(v));
+  for (const m of (await q("SELECT household_id, user_id FROM memberships")).rows) {
+    const rows = (await asUser(m.user_id, c => c.query("SELECT coll, id, data::text AS t FROM docs WHERE household_id = $1 AND (data::text LIKE '%/uploads/%' OR coll = 'tickets' OR coll LIKE '%/\\_tickets/t')", [m.household_id]))).rows;
+    if (!tickets.has(m.household_id)) tickets.set(m.household_id, new Set());
+    for (const r of rows) {
+      for (const x of r.t.matchAll(/\/uploads\/([A-Za-z0-9-]+\.[a-z]{3,4})/g)) uploads.add(x[1]);
+      if (r.coll === "tickets" || r.coll.endsWith("/_tickets/t")) tickets.get(m.household_id).add(r.id);
+    }
+  }
+  return { uploads, tickets };
+}
+async function sweepOrphans() {
+  const now = Date.now(), old = (f, ms) => { try { return now - fs.statSync(f).mtimeMs > ms; } catch { return false; } };
+  const { uploads, tickets } = await referencedFiles();
+  let n = 0;
+  // 7 jours de grâce : une photo peut être envoyée puis son document enregistré bien plus tard (file hors ligne).
+  for (const f of fs.readdirSync(CFG.uploadsDir)) {
+    const p = path.join(CFG.uploadsDir, f);
+    if (!uploads.has(f) && old(p, 7 * 86400e3)) { fs.unlinkSync(p); n++; }
+  }
+  const tdir = path.join(CFG.privateDir, "tickets");
+  for (const hid of fs.readdirSync(tdir)) {
+    const ids = tickets.get(hid), dir = path.join(tdir, hid);
+    if (!ids) { if (old(dir, 86400e3)) { fs.rmSync(dir, { recursive: true, force: true }); n++; } continue; }
+    for (const f of fs.readdirSync(dir)) {
+      const p = path.join(dir, f);
+      if (!ids.has(f.replace(/\.[a-z]+$/, "")) && old(p, 86400e3)) { fs.unlinkSync(p); n++; }
+    }
+  }
+  if (n) logJson("info", { msg: "fichiers orphelins supprimés", count: n });
+  return n;
+}
+setTimeout(() => sweepOrphans().catch(e => logJson("error", { msg: "sweepOrphans", message: e.message })), 5 * 60e3).unref();
+setInterval(() => sweepOrphans().catch(e => logJson("error", { msg: "sweepOrphans", message: e.message })), 86400e3).unref();
+
 /* ---------------------------- Nettoyage périodique ---------------------------- */
 setInterval(() => {
   q("DELETE FROM sessions WHERE expires_at < now()").catch(() => {});
@@ -970,6 +1053,8 @@ setInterval(() => {
     try { await checkDbRole(); await applySchema(); break; }
     catch (e) { if (e.fatal || i > 20) throw e; console.log("En attente de PostgreSQL…"); await new Promise(r => setTimeout(r, 2000)); }
   }
+  // Maintenance ponctuelle : `node src/server.js --sweep` supprime les fichiers orphelins puis s'arrête.
+  if (process.argv.includes("--sweep")) { console.log(`${await sweepOrphans()} fichier(s) orphelin(s) supprimé(s)`); process.exit(0); }
   await startListener();
   app.listen(CFG.port, () => console.log(`${CFG.appName} prêt sur le port ${CFG.port} (${CFG.appUrl})${transport ? "" : " — e-mails affichés dans la console (SMTP non configuré)"}`));
 })().catch(e => { console.error(e); process.exit(1); });
