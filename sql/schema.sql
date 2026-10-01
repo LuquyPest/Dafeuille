@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at  timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip text;
 
 CREATE TABLE IF NOT EXISTS email_tokens (
   id          text PRIMARY KEY,                 -- empreinte SHA-256 du jeton

@@ -236,6 +236,13 @@ h3{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em
 .items .late{color:var(--danger)}
 .items .done .tx{text-decoration:line-through;color:var(--muted)}
 .cbx{width:22px;height:22px;accent-color:var(--accent);flex:none;margin:0}
+.acc-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.acc-row:last-child{border-bottom:0}
+.acc-row .tx{flex:1;min-width:0}
+.acc-row .tx span{display:block;font-size:.8rem;color:var(--muted)}
+.acc-row select{border:1.5px solid var(--line);border-radius:10px;padding:6px 8px;background:var(--surface)}
+.qr{display:block;margin:10px auto;width:200px;height:200px;border-radius:12px;background:#fff;padding:6px}
+.codes{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:ui-monospace,monospace;font-size:.95rem;background:var(--surface-2);padding:12px;border-radius:12px;text-align:center}
 
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
 .filters select{flex:1 1 120px;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 10px;font-size:.84rem;color:var(--ink)}
@@ -5605,13 +5612,6 @@ const AUTH_CSS = `
 #auth .hh b{display:block}
 #auth .hh span{font-size:.8rem;color:var(--muted)}
 #auth .code{font-size:1.6rem;letter-spacing:.35em;text-align:center;font-weight:700}
-.acc-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
-.acc-row:last-child{border-bottom:0}
-.acc-row .tx{flex:1;min-width:0}
-.acc-row .tx span{display:block;font-size:.8rem;color:var(--muted)}
-.acc-row select{border:1.5px solid var(--line);border-radius:10px;padding:6px 8px;background:var(--surface)}
-.qr{display:block;margin:10px auto;width:200px;height:200px;border-radius:12px;background:#fff;padding:6px}
-.codes{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:ui-monospace,monospace;font-size:.95rem;background:var(--surface-2);padding:12px;border-radius:12px;text-align:center}
 #auth .acard.gpage{max-width:480px}
 #auth .acard.gpage .gpage-grid{display:grid;gap:0}
 @media (min-width:880px){
@@ -5896,6 +5896,17 @@ const ACC_HTML = `<div id="srvAcc">
       <input class="inp" id="accPw0" type="password" placeholder="Mot de passe actuel" autocomplete="current-password" style="margin-bottom:8px">
       <input class="inp" id="accPw1" type="password" placeholder="Nouveau mot de passe (10 caractères min.)" autocomplete="new-password" style="margin-bottom:8px">
       <button type="button" class="btn sm" id="accPwGo">Enregistrer</button><p class="err" id="accPwErr" style="margin:8px 0 0"></p></details>
+    <details class="more"><summary>Sessions actives</summary>
+      <div id="accSessions"><p class="muted small">Chargement…</p></div>
+    </details>
+    <details class="more"><summary>Mes données</summary>
+      <button type="button" class="btn sm ghost" id="accExport">${I("download")}Exporter mes données (JSON)</button>
+    </details>
+    <details class="more"><summary style="color:var(--danger)">Supprimer mon compte</summary>
+      <p class="small muted">Cette action est définitive : votre compte, votre profil, vos badges et vos données privées seront supprimés. Un foyer que vous partagez avec d'autres personnes est conservé pour elles ; un foyer dont vous êtes seul·e membre est supprimé avec son contenu.</p>
+      <input class="inp" id="accDelPw" type="password" placeholder="Mot de passe actuel" autocomplete="current-password" style="margin:8px 0">
+      <button type="button" class="btn sm danger" id="accDelGo">Supprimer définitivement mon compte</button><p class="err" id="accDelErr" style="margin:8px 0 0"></p>
+    </details>
   </div><hr class="sep"></div>`;
 let accMembersCache = [];
 async function renderAccess(){
@@ -5913,6 +5924,14 @@ async function renderAccess(){
         : `<span class="muted small">${({owner:"Propriétaire", contributor:"Contributeur", viewer:"Lecteur"})[m.role]}</span>${m.me && !owner ? `<button type="button" class="btn sm ghost" data-mdel="${esc(m.id)}">Quitter</button>` : ""}`}</div>`).join("")
       + r.invites.map(i => `<div class="acc-row"><span class="tx">${esc(i.email)}<span>Invitation envoyée · ${i.role === "viewer" ? "lecteur" : "contributeur"}</span></span><button type="button" class="x" data-idel="${esc(i.id)}" aria-label="Annuler l'invitation">${I("x")}</button></div>`).join("");
   } catch (e) { $("#accMembers").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+function fmtDateTime(iso){ return new Date(iso).toLocaleString("fr-FR", {day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit"}); }
+async function renderSessions(){
+  const box = $("#accSessions");
+  try {
+    const r = await api("GET", "/api/me/sessions");
+    box.innerHTML = r.sessions.map(s => `<div class="acc-row"><span class="tx">${s.current ? "<b>Cette session</b>" : esc(s.userAgent || "Appareil inconnu")}<span>${esc(s.ip || "IP inconnue")} · Dernière activité ${fmtDateTime(s.lastSeen)}</span></span>${s.current ? `<span class="muted small">Actuelle</span>` : `<button type="button" class="x" data-sdel="${esc(s.id)}" aria-label="Révoquer cette session">${I("x")}</button>`}</div>`).join("") || `<p class="muted small">Aucune session.</p>`;
+  } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 function initServerSettings(){
   const form = $("#setForm"), head = form.querySelector(".sheet-head");
@@ -5967,6 +5986,28 @@ function initServerSettings(){
     $("#accPwErr").textContent = "";
     try { await api("POST", "/api/me/password", {current:$("#accPw0").value, password:$("#accPw1").value}); $("#accPw0").value = $("#accPw1").value = ""; toast("Mot de passe modifié"); }
     catch (e) { $("#accPwErr").textContent = e.message; }
+  };
+  let sessionsLoaded = false;
+  $("#accSessions").parentElement.addEventListener("toggle", e => { if (e.target.open && !sessionsLoaded) { sessionsLoaded = true; renderSessions(); } });
+  $("#accSessions").addEventListener("click", async e => {
+    const b = e.target.closest("[data-sdel]"); if (!b) return;
+    try { await api("DELETE", `/api/me/sessions/${encodeURIComponent(b.dataset.sdel)}`); toast("Session révoquée"); renderSessions(); }
+    catch (err) { toast(err.message); }
+  });
+  $("#accExport").onclick = async () => {
+    try {
+      const r = await fetch("/api/me/export", {credentials:"same-origin", headers:{"X-PC":"1"}});
+      if (!r.ok) throw new Error("Erreur.");
+      const blob = await r.blob();
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "dafeuille-mes-donnees.json"; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch { toast("Erreur lors de l'export."); }
+  };
+  $("#accDelGo").onclick = async () => {
+    if (!confirm("Supprimer définitivement votre compte ? Cette action est irréversible.")) return;
+    $("#accDelErr").textContent = "";
+    try { await api("DELETE", "/api/me", {password:$("#accDelPw").value}); location.href = "/"; }
+    catch (e) { $("#accDelErr").textContent = e.message; }
   };
   const __openSettings = openSettings;
   openSettings = function(){ __openSettings(); $("#accTotpBox").hidden = true; renderAccess(); };

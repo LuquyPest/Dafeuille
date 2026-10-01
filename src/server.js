@@ -166,10 +166,17 @@ function parseCookies(req) {
 function setCookie(res, value, maxAge) {
   res.append("Set-Cookie", `pc_sid=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${CFG.secure ? "; Secure" : ""}`);
 }
-async function openSession(req, res, userId, mfaPending) {
-  const t = newToken();
-  await q("INSERT INTO sessions (id, user_id, mfa_pending, user_agent, expires_at) VALUES ($1,$2,$3,$4, now() + interval '30 days')", [sha(t), userId, !!mfaPending, String(req.get("user-agent") || "").slice(0, 200)]);
+async function openSession(req, res, user, mfaPending) {
+  const t = newToken(), ip = String(req.ip || "").slice(0, 64), ua = String(req.get("user-agent") || "").slice(0, 200);
+  const seen = (await q("SELECT 1 FROM sessions WHERE user_id = $1 AND ip = $2 LIMIT 1", [user.id, ip])).rows[0];
+  const hadSessions = (await q("SELECT 1 FROM sessions WHERE user_id = $1 LIMIT 1", [user.id])).rows[0];
+  await q("INSERT INTO sessions (id, user_id, mfa_pending, user_agent, ip, expires_at) VALUES ($1,$2,$3,$4,$5, now() + interval '30 days')", [sha(t), user.id, !!mfaPending, ua, ip]);
   setCookie(res, t, SESSION_DAYS * 86400);
+  if (!seen && hadSessions && ip) {
+    sendMail(user.email, "Nouvelle connexion à votre compte", "Nouvelle connexion",
+      `Une connexion à votre compte ${esc(CFG.appName)} vient d'avoir lieu depuis une adresse inhabituelle.<br><br>Adresse IP : <b>${esc(ip)}</b><br>Appareil : ${esc(ua || "inconnu")}<br>Date : ${new Date().toLocaleString("fr-FR")}<br><br>Si ce n'est pas vous, changez votre mot de passe dès que possible.`,
+      "Voir mes sessions", `${CFG.appUrl}/`).catch(() => {});
+  }
 }
 async function loadSession(req, res, next) {
   const t = parseCookies(req).pc_sid;
@@ -254,7 +261,7 @@ app.get("/api/auth/verify", h(async (req, res) => {
   const user = (await q("SELECT * FROM users WHERE id = $1", [tok.user_id])).rows[0];
   let hid = "";
   if (tok.data && tok.data.invite) { try { hid = await acceptInvite(tok.data.invite, user); } catch {} }
-  await openSession(req, res, user.id, user.totp_on);
+  await openSession(req, res, user, user.totp_on);
   res.redirect("/?ok=verifie" + (hid ? "&h=" + hid : ""));
 }));
 
@@ -268,7 +275,7 @@ app.post("/api/auth/login", h(async (req, res) => {
     try { limit("resend:" + user.id, 3, 3600e3); await sendVerification(user); } catch {}
     throw new HttpError(403, "unverified", "Adresse non confirmée : un nouvel e-mail de confirmation vient d'être envoyé.");
   }
-  await openSession(req, res, user.id, user.totp_on);
+  await openSession(req, res, user, user.totp_on);
   res.json({ ok: true, mfa: user.totp_on });
 }));
 
@@ -305,7 +312,7 @@ app.get("/api/auth/magic", h(async (req, res) => {
   if (!tok) return res.redirect("/?e=lien");
   const user = (await q("SELECT * FROM users WHERE id = $1", [tok.user_id])).rows[0];
   if (!user) return res.redirect("/?e=lien");
-  await openSession(req, res, user.id, user.totp_on);
+  await openSession(req, res, user, user.totp_on);
   res.redirect("/");
 }));
 
@@ -407,6 +414,57 @@ app.post("/api/me/totp/enable", requireUser, h(async (req, res) => {
 app.post("/api/me/totp/disable", requireUser, h(async (req, res) => {
   if (!await verifyPassword(String(req.body.password || ""), req.user.pass)) throw new HttpError(401, "bad_password", "Mot de passe incorrect.");
   await q("UPDATE users SET totp_on = false, totp_secret = NULL, totp_pending = NULL, backup_codes = '[]' WHERE id = $1", [req.user.id]);
+  res.json({ ok: true });
+}));
+
+app.get("/api/me/sessions", requireUser, h(async (req, res) => {
+  const rows = (await q("SELECT id, user_agent, ip, created_at, last_seen FROM sessions WHERE user_id = $1 AND expires_at > now() ORDER BY last_seen DESC", [req.user.id])).rows;
+  res.json({ sessions: rows.map(s => ({ id: s.id, userAgent: s.user_agent, ip: s.ip, createdAt: s.created_at, lastSeen: s.last_seen, current: s.id === req.sess.id })) });
+}));
+app.delete("/api/me/sessions/:id", requireUser, h(async (req, res) => {
+  if (req.params.id === req.sess.id) throw bad("current_session", "Utilisez « Se déconnecter » pour cette session.");
+  await q("DELETE FROM sessions WHERE id = $1 AND user_id = $2", [req.params.id, req.user.id]);
+  res.json({ ok: true });
+}));
+app.delete("/api/me/sessions", requireUser, h(async (req, res) => {
+  await q("DELETE FROM sessions WHERE user_id = $1 AND id <> $2", [req.user.id, req.sess.id]);
+  res.json({ ok: true });
+}));
+
+app.get("/api/me/export", requireUser, h(async (req, res) => {
+  const u = req.user;
+  const households = (await q(`SELECT h.id, h.name, m.role, m.created_at AS joined_at FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY m.created_at`, [u.id])).rows;
+  const documentsByHousehold = {};
+  for (const hh of households) {
+    const docs = await asUser(u.id, c => c.query("SELECT coll, id, data, updated_at FROM docs WHERE household_id = $1 AND (owner = '' OR owner = $2) AND coll <> 'tickets' AND coll NOT LIKE '%/\\_tickets/%'", [hh.id, u.id]));
+    documentsByHousehold[hh.id] = docs.rows;
+  }
+  const sessions = (await q("SELECT user_agent, ip, created_at, last_seen FROM sessions WHERE user_id = $1 ORDER BY created_at", [u.id])).rows;
+  res.setHeader("Content-Disposition", `attachment; filename="dafeuille-export-${u.id}.json"`);
+  res.json({
+    exportedAt: new Date().toISOString(),
+    account: { id: u.id, email: u.email, name: u.name, bio: u.bio, avatar: u.avatar, banner: u.banner, xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, totpEnabled: u.totp_on, createdAt: u.created_at },
+    households: households.map(h => ({ id: h.id, name: h.name, role: h.role, joinedAt: h.joined_at })),
+    documentsByHousehold,
+    sessions,
+  });
+}));
+
+app.delete("/api/me", requireUser, h(async (req, res) => {
+  limit("delacc:" + req.user.id, 5, 3600e3);
+  if (!await verifyPassword(String(req.body.password || ""), req.user.pass)) throw new HttpError(401, "bad_password", "Mot de passe incorrect.");
+  const memberships = (await q(`SELECT m.household_id, m.role, h.name,
+      (SELECT count(*)::int FROM memberships x WHERE x.household_id = m.household_id) AS member_count,
+      (SELECT count(*)::int FROM memberships x WHERE x.household_id = m.household_id AND x.role = 'owner') AS owner_count
+    FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1`, [req.user.id])).rows;
+  const blocking = memberships.filter(m => m.member_count > 1 && m.role === "owner" && m.owner_count <= 1);
+  if (blocking.length) throw bad("owner_conflict", `Nommez un autre propriétaire ou quittez ces foyers avant de supprimer votre compte : ${blocking.map(m => m.name).join(", ")}.`);
+  for (const m of memberships) {
+    if (m.member_count <= 1) await q("DELETE FROM households WHERE id = $1", [m.household_id]);
+    else await q("DELETE FROM docs WHERE household_id = $1 AND owner = $2", [m.household_id, req.user.id]);
+  }
+  await q("DELETE FROM users WHERE id = $1", [req.user.id]);
+  setCookie(res, "", 0);
   res.json({ ok: true });
 }));
 
