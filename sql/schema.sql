@@ -161,3 +161,20 @@ CREATE INDEX IF NOT EXISTS xp_events_user_at_idx ON xp_events (user_id, at);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_digest boolean NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_sent_week text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_token text;
+
+-- Notifications push (Web Push / VAPID) : un abonnement par appareil.
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint   text PRIMARY KEY,
+  user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  user_agent text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subs_user_idx ON push_subs (user_id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS push_prefs jsonb NOT NULL DEFAULT '{"bills":true,"budget":true,"badges":true,"groups":true}';
+-- Anti-doublon des notifications (une facture, un seuil de budget… ne sont signalés qu'une fois).
+CREATE TABLE IF NOT EXISTS push_sent (
+  key text PRIMARY KEY,
+  at  timestamptz NOT NULL DEFAULT now()
+);

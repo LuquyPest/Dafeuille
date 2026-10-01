@@ -229,3 +229,12 @@ test("tickets : photo partagée visible du foyer, privée visible de son seul au
   assert.equal((await b("DELETE", `/api/h/${hid}/tickets/${shared}`)).status, 200);
   assert.equal((await a("GET", `/api/h/${hid}/tickets/${shared}`)).status, 404);
 });
+
+test("push : seuls les vrais services de notification sont acceptés comme destination (anti-SSRF)", async () => {
+  const { c } = await freshVerifiedUser("Push");
+  const keys = { p256dh: crypto.createECDH("prime256v1").generateKeys().toString("base64url"), auth: crypto.randomBytes(16).toString("base64url") };
+  for (const endpoint of ["http://db:5432/x", "https://127.0.0.1/x", "https://evil.example/push", "https://fcm.googleapis.com.evil.example/x"])
+    assert.equal((await c("POST", "/api/push/subscribe", { subscription: { endpoint, keys } })).status, 400, endpoint);
+  assert.equal((await c("POST", "/api/push/subscribe", { subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/apitest", keys } })).status, 200);
+  assert.equal((await c("DELETE", "/api/push/subscribe", { endpoint: "https://fcm.googleapis.com/fcm/send/apitest" })).status, 200);
+});

@@ -5415,7 +5415,7 @@ async function checkNewBadges(){
     if (!fresh.length) return;
     const beforeLevel = levelInfo(SV.me.xp).level;
     try {
-      const r = await api("POST", "/api/me/badges", {ids:fresh});
+      const r = await api("POST", "/api/me/badges", {ids:fresh, labels:Object.fromEntries(badgeList().filter(b => fresh.includes(b.id)).map(b => [b.id, b.name]))});
       SV.me.xp = r.xp; SV.me.badges = r.badges;
       const b = badgeList().find(x => x.id === fresh[0]);
       toast(`Badge débloqué : ${b.name} (+${b.xp} XP)`);
@@ -6129,6 +6129,40 @@ function viewHouseholds(msg){
 }
 async function refreshMe(){ const r = await api("GET", "/api/me"); SV.me = r.user; SV.households = r.households; return r; }
 async function logout(){ await api("POST", "/api/auth/logout").catch(() => {}); clearSnapshots(); try { localStorage.removeItem("pc.srv.hid"); } catch {} location.href = "/"; }
+/* ---------- Notifications push (par appareil) ---------- */
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const b64u = s => { const p = "=".repeat((4 - s.length % 4) % 4), r = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map(c => c.charCodeAt(0))); };
+async function currentPushSub(){ try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch { return null; } }
+async function renderPush(){
+  const st = $("#pushState"), btn = $("#pushBtn"), prefs = $("#pushPrefs");
+  if (!pushSupported()) {
+    const ios = /iPhone|iPad/.test(navigator.userAgent);
+    st.textContent = ios ? "Sur iPhone : ajoutez d'abord DAFeuille à l'écran d'accueil (Partager → Sur l'écran d'accueil)" : "Non disponibles sur ce navigateur";
+    btn.hidden = true; prefs.hidden = true; return;
+  }
+  const sub = await currentPushSub(), denied = Notification.permission === "denied";
+  st.textContent = sub ? "Activées" : denied ? "Bloquées dans les réglages du navigateur" : "Désactivées";
+  btn.hidden = denied && !sub; btn.textContent = sub ? "Désactiver" : "Activer";
+  prefs.hidden = !sub;
+  const p = SV.me.pushPrefs || {}; $$("#pushPrefs [data-pp]").forEach(i => i.checked = p[i.dataset.pp] !== false);
+}
+async function togglePush(){
+  const btn = $("#pushBtn"); btn.disabled = true;
+  try {
+    const sub = await currentPushSub();
+    if (sub) { await api("DELETE", "/api/push/subscribe", {endpoint:sub.endpoint}).catch(() => {}); await sub.unsubscribe(); toast("Notifications désactivées sur cet appareil"); }
+    else {
+      if (await Notification.requestPermission() !== "granted") { toast("Notifications refusées"); return; }
+      const {key} = await api("GET", "/api/push/key"); if (!key) { toast("Notifications non configurées sur ce serveur"); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const s = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64u(key)});
+      await api("POST", "/api/push/subscribe", {subscription:s.toJSON()});
+      toast("Notifications activées sur cet appareil");
+    }
+  } catch (e) { toast(e.message || "Impossible d'activer les notifications"); }
+  finally { btn.disabled = false; renderPush(); }
+}
+
 /* ---------- Hors ligne : instantané local du foyer, pour démarrer sans réseau ---------- */
 const SNAP = hid => "pc.snap." + hid;
 function saveSnapshot(){
@@ -6184,6 +6218,13 @@ const ACC_HTML = `<div id="srvAcc">
     <div class="acc-row"><span class="tx">Double authentification<span id="accTotpState"></span></span><button type="button" class="btn sm ghost" id="accTotp"></button></div>
     <div id="accTotpBox" hidden></div>
     <div class="acc-row"><label class="check" style="flex:1;margin:0"><input type="checkbox" id="accDigest"> Recevoir chaque lundi un résumé de la semaine par e-mail</label></div>
+    <div class="acc-row"><span class="tx">Notifications sur cet appareil<span id="pushState">…</span></span><button type="button" class="btn sm ghost" id="pushBtn" hidden></button></div>
+    <div id="pushPrefs" hidden style="padding:4px 0 8px">
+      <label class="check"><input type="checkbox" data-pp="bills"> Factures à payer aujourd'hui ou demain</label>
+      <label class="check"><input type="checkbox" data-pp="budget"> Budget dépassé par une dépense d'un autre membre</label>
+      <label class="check"><input type="checkbox" data-pp="groups"> Dépense ajoutée par un ami dans un groupe</label>
+      <label class="check"><input type="checkbox" data-pp="badges"> Badges débloqués</label>
+    </div>
     <details class="more"><summary>Changer le mot de passe</summary>
       <input class="inp" id="accPw0" type="password" placeholder="Mot de passe actuel" autocomplete="current-password" style="margin-bottom:8px">
       <input class="inp" id="accPw1" type="password" placeholder="Nouveau mot de passe (10 caractères min.)" autocomplete="new-password" style="margin-bottom:8px">
@@ -6210,6 +6251,7 @@ async function renderAccess(){
   $("#accTotpState").textContent = SV.me.totp ? `Activée · ${SV.me.backupLeft} codes de secours restants` : "Désactivée";
   $("#accTotp").textContent = SV.me.totp ? "Désactiver" : "Activer";
   $("#accDigest").checked = SV.me.weeklyDigest !== false;
+  renderPush();
   $("#accInvite").hidden = SV.role !== "owner";
   try {
     const r = await api("GET", `/api/h/${encodeURIComponent(SV.hh.id)}/members`);
@@ -6287,6 +6329,11 @@ function initServerSettings(){
     try { await api("POST", "/api/me/digest", {on:e.target.checked}); SV.me.weeklyDigest = e.target.checked; toast(e.target.checked ? "Résumé hebdomadaire activé" : "Résumé hebdomadaire désactivé"); }
     catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
   };
+  $("#pushBtn").onclick = togglePush;
+  $("#pushPrefs").addEventListener("change", async e => {
+    const prefs = {}; $$("#pushPrefs [data-pp]").forEach(i => prefs[i.dataset.pp] = i.checked);
+    try { SV.me.pushPrefs = (await api("POST", "/api/me/push-prefs", prefs)).prefs; } catch (err) { toast(err.message); }
+  });
   let sessionsLoaded = false;
   $("#accSessions").parentElement.addEventListener("toggle", e => { if (e.target.open && !sessionsLoaded) { sessionsLoaded = true; renderSessions(); } });
   $("#accSessions").addEventListener("click", async e => {

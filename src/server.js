@@ -8,6 +8,7 @@ const compression = require("compression");
 const { Pool, Client } = require("pg");
 const nodemailer = require("nodemailer");
 const QRCode = require("qrcode");
+const webpush = require("web-push");
 
 /* ============================ Configuration ============================ */
 const env = process.env;
@@ -27,6 +28,8 @@ const CFG = {
   uploadsDir: env.UPLOADS_DIR || path.join(__dirname, "..", "data", "uploads"),
   privateDir: env.PRIVATE_DIR || path.join(__dirname, "..", "data", "private"),
 };
+CFG.vapid = env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY ? { pub: env.VAPID_PUBLIC_KEY, priv: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || "mailto:admin@localhost" } : null;
+if (CFG.vapid) webpush.setVapidDetails(CFG.vapid.subject, CFG.vapid.pub, CFG.vapid.priv);
 fs.mkdirSync(CFG.uploadsDir, { recursive: true });
 fs.mkdirSync(path.join(CFG.privateDir, "tickets"), { recursive: true });
 CFG.secure = CFG.appUrl.startsWith("https://");
@@ -378,7 +381,7 @@ app.get("/api/me", h(async (req, res) => {
   const hs = (await q(`SELECT h.id, h.name, m.role, (SELECT count(*) FROM memberships x WHERE x.household_id = h.id)::int AS members
     FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY h.created_at`, [req.user.id])).rows;
   const u = req.user;
-  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, weeklyDigest: u.weekly_digest, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
+  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar, banner: u.banner, bio: u.bio || "", xp: u.xp, badges: u.badges, hideFromLeaderboard: u.hide_from_leaderboard, weeklyDigest: u.weekly_digest, pushPrefs: u.push_prefs, totp: u.totp_on, backupLeft: (u.backup_codes || []).length }, households: hs });
 }));
 app.patch("/api/me", requireUser, h(async (req, res) => {
   const name = String(req.body.name || "").trim().slice(0, 60); if (!name) throw bad("bad_name", "Nom requis.");
@@ -402,6 +405,34 @@ app.get("/api/me/progress", requireUser, h(async (req, res) => {
   let streak = 0, t = set.has(today) ? today : today - DAY;
   while (set.has(t)) { streak++; t -= DAY; }
   res.json({ days, streak, best, activeToday: set.has(today) });
+}));
+/* ---------------------------- Notifications push ---------------------------- */
+// Seuls les vrais services de push sont acceptés comme destination : le serveur envoie des requêtes à
+// cette adresse, une URL libre permettrait de lui faire viser le réseau interne (SSRF).
+const PUSH_HOSTS = [/(^|\.)fcm\.googleapis\.com$/, /(^|\.)android\.googleapis\.com$/, /(^|\.)push\.services\.mozilla\.com$/, /(^|\.)notify\.windows\.com$/, /(^|\.)push\.apple\.com$/];
+const PUSH_TYPES = ["bills", "budget", "badges", "groups"];
+function checkPushSub(sub) {
+  let u; try { u = new URL(String(sub && sub.endpoint)); } catch { throw bad("bad_sub", "Abonnement invalide."); }
+  if (u.protocol !== "https:" || !PUSH_HOSTS.some(re => re.test(u.hostname)) || String(sub.endpoint).length > 1000) throw bad("bad_sub", "Service de notification non reconnu.");
+  const k = sub.keys || {};
+  if (!/^[A-Za-z0-9_-]{80,100}$/.test(k.p256dh || "") || !/^[A-Za-z0-9_-]{16,32}$/.test(k.auth || "")) throw bad("bad_sub", "Abonnement invalide.");
+}
+app.get("/api/push/key", requireUser, (req, res) => res.json({ key: CFG.vapid ? CFG.vapid.pub : null }));
+app.post("/api/push/subscribe", requireUser, h(async (req, res) => {
+  if (!CFG.vapid) throw new HttpError(503, "unavailable", "Notifications non configurées sur ce serveur.");
+  limit("push-sub:" + req.user.id, 30, 3600e3);
+  const sub = req.body.subscription; checkPushSub(sub);
+  await q(`INSERT INTO push_subs (endpoint, user_id, p256dh, auth, user_agent) VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth`,
+    [sub.endpoint, req.user.id, sub.keys.p256dh, sub.keys.auth, String(req.get("user-agent") || "").slice(0, 200)]);
+  res.json({ ok: true });
+}));
+app.delete("/api/push/subscribe", requireUser, h(async (req, res) => {
+  await q("DELETE FROM push_subs WHERE endpoint = $1 AND user_id = $2", [String(req.body.endpoint || ""), req.user.id]); res.json({ ok: true });
+}));
+app.post("/api/me/push-prefs", requireUser, h(async (req, res) => {
+  const p = {}; PUSH_TYPES.forEach(t => { p[t] = req.body[t] !== false; });
+  await q("UPDATE users SET push_prefs = $2 WHERE id = $1", [req.user.id, JSON.stringify(p)]); res.json({ ok: true, prefs: p });
 }));
 app.post("/api/me/digest", requireUser, h(async (req, res) => {
   await q("UPDATE users SET weekly_digest = $2 WHERE id = $1", [req.user.id, !!req.body.on]); res.json({ ok: true });
@@ -727,6 +758,11 @@ app.post("/api/me/badges", requireUser, h(async (req, res) => {
     for (const id of fresh) await q("INSERT INTO xp_events (user_id, amount, reason) VALUES ($1,$2,$3)", [req.user.id, BADGE_CATALOG[id], "badge:" + id]);
     xp += gained;
   }
+  if (fresh.length) {
+    const labels = req.body.labels && typeof req.body.labels === "object" ? req.body.labels : {};
+    pushTo([req.user.id], "badges", { title: fresh.length > 1 ? `${fresh.length} badges débloqués` : "Badge débloqué",
+      body: fresh.map(id => `${String(labels[id] || id).slice(0, 40)} (+${BADGE_CATALOG[id]} XP)`).join(", "), tag: "badges", url: "/" }).catch(() => {});
+  }
   res.json({ xp, badges });
 }));
 app.get("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
@@ -756,6 +792,7 @@ app.put("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
     const payload = { t: "doc", hid: req.params.hid, coll, id, owner, by: req.user.id };
     if (json.length < 7000 && !isTickets(coll)) payload.data = data; else payload.big = true;
     await c.query("SELECT pg_notify('pc_docs', $1)", [JSON.stringify(payload)]);
+    if (coll === "expenses" && ins.rows[0] && ins.rows[0].inserted) setImmediate(() => budgetPush(req.params.hid, req.user, data).catch(e => logJson("error", { msg: "budgetPush", message: e.message })));
   });
   res.json({ ok: true });
 }));
@@ -920,6 +957,12 @@ app.post("/api/public/group/:token/item", h(async (req, res) => {
     claimToken = await mintClaim(gl, "item", itemId);
     if (newPerson) personClaimToken = await mintClaim(gl, "person", pid);
   });
+  (async () => {
+    const g = (await asUser(gl.created_by, c => c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [gl.household_id, gl.group_id]))).rows[0];
+    const who = g && (g.data.people || []).find(p => p.id === personId);
+    await pushTo(await householdMembers(gl.household_id), "groups", { title: `Nouvelle dépense dans « ${String(g ? g.data.name : "votre groupe").slice(0, 40)} »`,
+      body: `${who ? who.name : "Quelqu'un"} a ajouté « ${label} » (${euro(amount)})`, tag: `group-${gl.group_id}`, url: `/?h=${gl.household_id}` });
+  })().catch(e => logJson("error", { msg: "groupPush", message: e.message }));
   res.json({ ok: true, itemId, claimToken, personId, personClaimToken: personClaimToken || null });
 }));
 app.patch("/api/public/group/:token/item/:itemId", h(async (req, res) => {
@@ -1026,6 +1069,65 @@ app.use((err, req, res, next) => {
   logJson("error", { reqId: req.id, method: req.method, path: req.path, userId: req.user && req.user.id, message: err && err.message, stack: err && err.stack });
   res.status(500).json({ error: "server", message: "Erreur du serveur.", requestId: req.id });
 });
+
+/* ---------------------------- Envoi des notifications push ---------------------------- */
+async function pushTo(userIds, type, msg) {
+  if (!CFG.vapid || !userIds.length) return 0;
+  const subs = (await q(`SELECT s.* FROM push_subs s JOIN users u ON u.id = s.user_id WHERE s.user_id = ANY($1) AND coalesce((u.push_prefs->>$2)::boolean, true)`, [userIds, type])).rows;
+  let n = 0;
+  await Promise.all(subs.map(async s => {
+    try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(msg), { TTL: 86400 }); n++; }
+    catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) await q("DELETE FROM push_subs WHERE endpoint = $1", [s.endpoint]).catch(() => {});   // abonnement expiré
+      else logJson("error", { msg: "push", status: e.statusCode, message: e.message });
+    }
+  }));
+  return n;
+}
+// Exécute fn une seule fois pour une clé donnée (une facture, un seuil de budget, etc.).
+async function pushOnce(key, fn) { if ((await q("INSERT INTO push_sent (key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING key", [key])).rows[0]) await fn(); }
+const householdMembers = async hid => (await q("SELECT user_id FROM memberships WHERE household_id = $1", [hid])).rows.map(r => r.user_id);
+const parisMonth = () => ymd(parisToday()).slice(0, 7);
+// Après l'ajout d'une dépense : prévient les AUTRES membres si un budget franchit le seuil ou 100 %.
+async function budgetPush(hid, author, e) {
+  if (!e || !(e.amount > 0) || !e.date || e.date.slice(0, 7) !== parisMonth()) return;
+  const docs = (await asUser(author.id, c => c.query("SELECT coll, id, data FROM docs WHERE household_id = $1 AND owner = '' AND (coll = 'expenses' OR (coll = 'foyer' AND id = 'reglages') OR coll = 'projets')", [hid]))).rows;
+  const set = (docs.find(d => d.coll === "foyer") || {}).data || {}, pct = (set.alertPct || 80) / 100;
+  const excluded = new Set(docs.filter(d => d.coll === "projets" && d.data && d.data.exclude).map(d => d.id));
+  const month = docs.filter(d => d.coll === "expenses").map(d => d.data).filter(x => x && x.date && x.date.slice(0, 7) === e.date.slice(0, 7) && x.amount > 0 && !(x.project && excluded.has(x.project)));
+  if (e.project && excluded.has(e.project)) return;
+  const names = { ...BASE_CAT_NAMES }; (set.customCats || []).forEach(c => { names[c.id] = String(c.name || c.id); });
+  const checks = [];
+  if (set.budget > 0) checks.push({ key: "_total", name: "Budget du mois", b: set.budget, v: month.reduce((a, x) => a + x.amount, 0) });
+  const cb = (set.catBudgets || {})[e.cat || "autre"];
+  if (cb > 0) checks.push({ key: e.cat || "autre", name: names[e.cat || "autre"] || e.cat, b: cb, v: month.filter(x => (x.cat || "autre") === (e.cat || "autre")).reduce((a, x) => a + x.amount, 0) });
+  const others = (await householdMembers(hid)).filter(u => u !== author.id);
+  for (const c of checks) {
+    const before = c.v - e.amount, lvl = c.v >= c.b && before < c.b ? 100 : c.v >= c.b * pct && before < c.b * pct ? Math.round(pct * 100) : 0;
+    if (!lvl) continue;
+    await pushOnce(`budget:${hid}:${c.key}:${e.date.slice(0, 7)}:${lvl}`, () => pushTo(others, "budget", {
+      title: lvl === 100 ? `${c.name} : budget dépassé` : `${c.name} : ${lvl} % du budget`,
+      body: `${euro(c.v)} sur ${euro(c.b)} — après « ${String(e.label || "une dépense").slice(0, 60)} » ajoutée par ${author.name || "un membre"}.`,
+      tag: `budget-${c.key}`, url: `/?h=${hid}` }));
+  }
+}
+// Chaque heure à partir de 9 h : factures à payer aujourd'hui ou demain (une notification par facture et par personne).
+async function billPushes() {
+  if (!CFG.vapid) return;
+  const hr = +new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Europe/Paris" }); if (hr < 9) return;
+  const t = ymd(parisToday()), tm = ymd(new Date(parisToday().getTime() + 864e5));
+  for (const m of (await q("SELECT DISTINCT m.household_id, m.user_id FROM memberships m JOIN push_subs s ON s.user_id = m.user_id")).rows) {
+    const rows = (await asUser(m.user_id, c => c.query("SELECT id, data FROM docs WHERE household_id = $1 AND coll = 'factures'", [m.household_id]))).rows;
+    for (const r of rows) {
+      const x = r.data || {}; if (x.done || (x.due !== t && x.due !== tm)) continue;
+      await pushOnce(`bill:${m.household_id}:${r.id}:${x.due}:${m.user_id}`, () => pushTo([m.user_id], "bills", {
+        title: x.due === t ? "À payer aujourd'hui" : "À payer demain", body: `${String(x.title || "Facture").slice(0, 80)}${x.amount ? " — " + euro(x.amount) : ""}`, tag: `bill-${r.id}`, url: `/?h=${m.household_id}` }));
+    }
+  }
+}
+setInterval(() => billPushes().catch(e => logJson("error", { msg: "billPushes", message: e.message })), 3600e3).unref();
+setTimeout(() => billPushes().catch(() => {}), 90e3).unref();
+setInterval(() => q("DELETE FROM push_sent WHERE at < now() - interval '120 days'").catch(() => {}), 86400e3).unref();
 
 /* ---------------------------- Résumé hebdomadaire par e-mail ---------------------------- */
 const BASE_CAT_NAMES = { courses: "Courses", logement: "Logement", energie: "Énergie", transport: "Transport", sante: "Santé", enfants: "Enfants", loisirs: "Loisirs", abonnements: "Abonnements", autre: "Autre" };
@@ -1149,6 +1251,7 @@ setInterval(() => {
   }
   // Maintenance ponctuelle : `node src/server.js --sweep` supprime les fichiers orphelins puis s'arrête.
   if (process.argv.includes("--sweep")) { console.log(`${await sweepOrphans()} fichier(s) orphelin(s) supprimé(s)`); process.exit(0); }
+  if (process.argv.includes("--push-bills")) { await billPushes(); console.log("Rappels de factures traités."); process.exit(0); }
   // Aperçu du résumé hebdo d'une personne, sans envoi : `node src/server.js --digest-preview <id ou e-mail>`
   const dp = process.argv.indexOf("--digest-preview");
   if (dp > 0) { const who = process.argv[dp + 1] || ""; const u = (await q("SELECT * FROM users WHERE id = $1 OR lower(email) = lower($1)", [who])).rows[0]; if (!u || !await sendDigest(u, true)) console.log("Rien à résumer."); process.exit(0); }

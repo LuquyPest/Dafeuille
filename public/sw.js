@@ -11,3 +11,23 @@ self.addEventListener("fetch", e => {
   if (e.request.mode === "navigate") { e.respondWith(fetch(e.request).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put("/index.html", c)); return r; }).catch(() => caches.match("/index.html"))); return; }
   e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request).then(r => { if (r.ok && u.origin === location.origin) { const c = r.clone(); caches.open(CACHE).then(x => x.put(e.request, c)); } return r; })));
 });
+
+/* Notifications push : rien n'est affiché si l'app est déjà visible sur cet appareil (elle montre l'info elle-même). */
+self.addEventListener("push", e => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = {body:e.data && e.data.text()}; }
+  e.waitUntil((async () => {
+    const cs = await self.clients.matchAll({type:"window", includeUncontrolled:true});
+    if (cs.some(c => c.visibilityState === "visible")) return;
+    await self.registration.showNotification(d.title || "DAFeuille", {body:d.body || "", icon:"/icon-192.png", badge:"/icon-192.png", tag:d.tag, renotify:!!d.tag, data:{url:d.url || "/"}});
+  })());
+});
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || "/", self.location.origin).href;
+  e.waitUntil((async () => {
+    const cs = await self.clients.matchAll({type:"window", includeUncontrolled:true});
+    const c = cs.find(x => x.url.startsWith(self.location.origin));
+    if (c) { await c.focus(); return c.navigate ? c.navigate(url).catch(() => {}) : null; }
+    return self.clients.openWindow(url);
+  })());
+});
