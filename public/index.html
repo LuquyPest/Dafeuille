@@ -1124,11 +1124,13 @@ img.av{object-fit:cover}
 <dialog id="impDlg" class="wide" aria-labelledby="impTitle">
   <div class="sheet">
     <div class="sheet-head"><h2 id="impTitle">Importer un relevé bancaire</h2><button type="button" class="linkbtn" data-close>Fermer</button></div>
-    <p class="muted small" style="margin-top:0">Téléchargez le relevé au format CSV depuis votre banque, puis choisissez le fichier. Seuls les débits sont importés.</p>
-    <div class="field"><input type="file" id="impFile" accept=".csv,text/csv,text/plain" class="inp"></div>
+    <p class="muted small" style="margin-top:0">Téléchargez le relevé depuis votre banque (CSV, OFX/QFX ou QIF), puis choisissez le fichier. Les débits deviennent des dépenses, les crédits des revenus. Ce qui est déjà importé ou déjà saisi est repéré et décoché.</p>
+    <div class="field"><input type="file" id="impFile" accept=".csv,.ofx,.qfx,.qif,text/csv,text/plain,application/x-ofx" class="inp"></div>
     <p class="err" id="impErr" role="alert"></p>
     <div id="impBody" hidden>
+      <div class="erow"><span class="cn">Compte</span><select id="impAccount" aria-label="Compte du relevé"></select></div>
       <div class="erow"><span class="cn">Payé par</span><select id="impPayer"></select></div>
+      <p class="muted small" style="margin:4px 0 8px">Seules les opérations postérieures au dernier pointage du compte modifient son solde (les plus anciennes y sont déjà comptées).</p>
       <div class="actions" style="margin:0 0 10px"><span class="muted small" id="impInfo"></span></div>
       <div class="scroll"><table class="t" id="impTable"></table></div>
       <div class="actions"><button class="btn push" id="impGo">Importer</button></div>
@@ -3604,10 +3606,12 @@ $("#calNext").addEventListener("click", () => { state.month = nextKey(state.mont
 /* ================= Patrimoine ================= */
 const ACC_TYPES = [{id:"courant", label:"Compte courant"}, {id:"epargne", label:"Épargne (livret, PEL…)"}, {id:"placement", label:"Placement (assurance-vie, PEA…)"}, {id:"autre", label:"Autre"}];
 function accountMovements(a){
-  const since = a.updatedAt || 0;
+  const since = a.updatedAt || 0, sinceDay = dstr(new Date(since));
+  // Une opération importée d'un relevé compte selon sa date bancaire : antérieure au pointage, elle est déjà dans le solde.
+  const after = e => e.imported ? e.date > sinceDay : (e.createdAt || 0) >= since;
   let sum = 0;
-  state.expenses.forEach(e => { if (e.accountId === a.id && (e.createdAt || 0) >= since) sum -= (e.amount || 0); });
-  state.incomes.forEach(e => { if (e.accountId === a.id && (e.createdAt || 0) >= since) sum += (e.amount || 0); });
+  state.expenses.forEach(e => { if (e.accountId === a.id && after(e)) sum -= (e.amount || 0); });
+  state.incomes.forEach(e => { if (e.accountId === a.id && after(e)) sum += (e.amount || 0); });
   state.transfers.forEach(t => { if ((t.createdAt || 0) < since) return; if (t.fromAccount === a.id) sum -= (t.amount || 0); if (t.toAccount === a.id) sum += (t.amount || 0); });
   return sum;
 }
@@ -5731,32 +5735,6 @@ $("#notesBtn").addEventListener("click", async () => {
   catch (e) { $("#expoMsg").textContent = e && e.message === "vide" ? "Aucune note de frais : cochez « Note de frais » sur une dépense." : "L'export a échoué."; }
 });
 
-/* ================= Import depuis d'autres applis ================= */
-parseBank = function(text){
-  const rows = splitCSV(text);
-  const hi = rows.findIndex(r => r.some(c => /date/i.test(c)) && r.some(c => /montant|d[ée]bit|amount|cr[ée]dit|valeur|prix/i.test(c)));
-  if (hi < 0) throw new Error("Colonnes introuvables : il faut au moins une colonne « Date » et une colonne « Montant ».");
-  const h = rows[hi].map(c => norm(c));
-  const find = re => h.findIndex(c => re.test(c));
-  const iDate = find(/date/), iLab = find(/libell|descr|intitul|operation|detail|label|nature|tiers|beneficiaire|titre|title|what|objet/);
-  const iAmt = find(/montant|amount|prix/), iDeb = find(/debit/), iCred = find(/credit/);
-  const iPay = find(/paye par|paid by|payeur|payer/), iCat = find(/categor/);
-  const data = rows.slice(hi + 1);
-  const anyNeg = iAmt >= 0 && data.some(r => bankAmount(r[iAmt]) < 0);
-  const out = [];
-  for (const r of data) {
-    const date = bankDate(r[iDate]); if (!date) continue;
-    let amount = NaN;
-    if (iDeb >= 0 && r[iDeb]) { const d = bankAmount(r[iDeb]); if (Number.isFinite(d) && d !== 0) amount = Math.abs(d); }
-    else if (iAmt >= 0) { const a = bankAmount(r[iAmt]); if (Number.isFinite(a)) amount = anyNeg ? (a < 0 ? -a : NaN) : a; }
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    const label = (iLab >= 0 ? r[iLab] : r.filter((_, i) => ![iDate, iAmt, iDeb, iCred, iPay, iCat].includes(i)).join(" ")).replace(/\s+/g, " ").trim().slice(0, 80);
-    const pn = iPay >= 0 ? norm(r[iPay]).trim() : "", payer = pn ? (members().find(m => norm(m.name).trim() === pn) || {}).id : null;
-    const cn = iCat >= 0 ? norm(r[iCat]).trim() : "", cat = cn ? (allCats().find(c => norm(c.name).trim() === cn || cn.includes(norm(c.name).trim())) || {}).id : null;
-    out.push({date, label, amount, payer:payer || null, cat:cat || null});
-  }
-  return out;
-};
 
 /* ================= Accueil illustré ================= */
 const ONB_ART = `<svg viewBox="0 0 320 150" class="onb-art" aria-hidden="true"><defs><linearGradient id="oa" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--accent)"/><stop offset="1" style="stop-color:var(--accent-2)"/></linearGradient></defs>
@@ -6573,23 +6551,72 @@ function bankDate(s){
   if (m) { let y = +m[3]; if (y < 100) y += 2000; return `${y}-${pad(+m[2])}-${pad(+m[1])}`; }
   return null;
 }
+const htmlEnt = s => String(s || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'");
+/* OFX/QFX (SGML v1 sans balises fermantes, ou XML v2) : un <STMTTRN> par opération, montant signé. */
+function parseOFX(text){
+  const out = [];
+  for (const b of text.split(/<STMTTRN>/i).slice(1)) {
+    const f = tag => { const m = b.match(new RegExp("<" + tag + ">([^<\\r\\n]*)", "i")); return m ? htmlEnt(m[1].trim()) : ""; };
+    const d = f("DTPOSTED").match(/^(\d{4})(\d{2})(\d{2})/), amount = bankAmount(f("TRNAMT"));
+    if (!d || !Number.isFinite(amount) || !amount) continue;
+    const label = [f("NAME"), f("MEMO")].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(" · ").replace(/\s+/g, " ").slice(0, 80);
+    out.push({date:`${d[1]}-${d[2]}-${d[3]}`, label:label || f("TRNTYPE") || "Opération", amount, fitid:f("FITID")});
+  }
+  if (!out.length) throw new Error("Aucune opération trouvée dans ce fichier OFX.");
+  return out;
+}
+/* QIF : enregistrements séparés par ^ ; D date, T/U montant, P tiers, M mémo. L'ordre jour/mois des dates
+   est déduit du fichier (un nombre > 12 tranche), français (JJ/MM) par défaut. */
+function parseQIF(text){
+  const recs = [], dates = [];
+  let cur = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const l = raw.trim(); if (!l || l.startsWith("!")) continue;
+    const k = l[0], v = l.slice(1).trim();
+    if (k === "^") { if (cur.D) recs.push(cur); cur = {}; continue; }
+    if ("DTUPMN".includes(k) && !(k === "U" && cur.T)) cur[k === "U" ? "T" : k] = v;
+  }
+  if (cur.D) recs.push(cur);
+  const parts = recs.map(r => r.D.replace(/'/g, "/").split(/[\/.\-]/).map(x => x.trim()));
+  const dmy = !parts.some(p => p[0].length !== 4 && +p[1] > 12);   // un 2e nombre > 12 ⇒ format américain MM/JJ
+  const out = [];
+  recs.forEach((r, i) => {
+    const p = parts[i]; let y, m, d;
+    if (p[0].length === 4) [y, m, d] = p; else if (dmy) [d, m, y] = p; else [m, d, y] = p;
+    y = +y; if (y < 100) y += 2000;
+    const amount = bankAmount(r.T); if (!Number.isFinite(amount) || !amount || !(+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31)) return;
+    const label = [r.P, r.M].filter(Boolean).join(" · ").replace(/\s+/g, " ").slice(0, 80);
+    out.push({date:`${y}-${pad(+m)}-${pad(+d)}`, label:label || "Opération", amount, fitid:r.N || ""});
+  });
+  if (!out.length) throw new Error("Aucune opération trouvée dans ce fichier QIF.");
+  return out;
+}
+/* CSV : relevés bancaires (débit/crédit ou montant signé) et exports d'autres applis de dépenses
+   (Tricount, Splitwise… : montants positifs, colonnes « Payé par », « Catégorie »).
+   Montant renvoyé signé : négatif = dépense, positif = revenu. */
 function parseBank(text){
   const rows = splitCSV(text);
-  const hi = rows.findIndex(r => r.some(c => /date/i.test(c)) && r.some(c => /montant|d[ée]bit|amount|cr[ée]dit|valeur/i.test(c)));
-  if (hi < 0) throw new Error("Colonnes introuvables : le fichier doit contenir une colonne « Date » et une colonne « Montant » ou « Débit ».");
-  const h = rows[hi].map(c => c.toLowerCase());
+  const hi = rows.findIndex(r => r.some(c => /date/i.test(c)) && r.some(c => /montant|d[ée]bit|amount|cr[ée]dit|valeur|prix/i.test(c)));
+  if (hi < 0) throw new Error("Colonnes introuvables : il faut au moins une colonne « Date » et une colonne « Montant » (ou « Débit »).");
+  const h = rows[hi].map(c => norm(c));
   const find = re => h.findIndex(c => re.test(c));
-  const iDate = find(/date/), iLab = find(/libell|descr|intitul|op[ée]ration|d[ée]tail|label|nature|tiers|b[ée]n[ée]ficiaire/);
-  const iAmt = find(/montant|amount/), iDeb = find(/d[ée]bit/), iCred = find(/cr[ée]dit/);
+  const iDate = find(/date/), iLab = find(/libell|descr|intitul|operation|detail|label|nature|tiers|beneficiaire|titre|title|what|objet/);
+  const iAmt = find(/montant|amount|prix/), iDeb = find(/debit/), iCred = find(/credit/);
+  const iPay = find(/paye par|paid by|payeur|payer/), iCat = find(/categor/);
+  const data = rows.slice(hi + 1);
+  const anyNeg = iAmt >= 0 && data.some(r => bankAmount(r[iAmt]) < 0);   // aucun négatif = export d'appli : tout est dépense
   const out = [];
-  for (const r of rows.slice(hi + 1)) {
+  for (const r of data) {
     const date = bankDate(r[iDate]); if (!date) continue;
     let amount = NaN;
-    if (iDeb >= 0 && r[iDeb]) { const d = bankAmount(r[iDeb]); if (Number.isFinite(d) && d !== 0) amount = Math.abs(d); }
-    else if (iAmt >= 0) { const a = bankAmount(r[iAmt]); if (Number.isFinite(a) && a < 0) amount = -a; }
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    const label = (iLab >= 0 ? r[iLab] : r.filter((_, i) => ![iDate, iAmt, iDeb, iCred].includes(i)).join(" ")).replace(/\s+/g, " ").trim().slice(0, 80);
-    out.push({date, label, amount});
+    if (iDeb >= 0 && r[iDeb]) { const d = bankAmount(r[iDeb]); if (Number.isFinite(d) && d !== 0) amount = -Math.abs(d); }
+    else if (iCred >= 0 && r[iCred]) { const c = bankAmount(r[iCred]); if (Number.isFinite(c) && c !== 0) amount = Math.abs(c); }
+    else if (iAmt >= 0) { const a = bankAmount(r[iAmt]); if (Number.isFinite(a) && a !== 0) amount = anyNeg ? a : -Math.abs(a); }
+    if (!Number.isFinite(amount) || !amount) continue;
+    const label = (iLab >= 0 ? r[iLab] : r.filter((_, i) => ![iDate, iAmt, iDeb, iCred, iPay, iCat].includes(i)).join(" ")).replace(/\s+/g, " ").trim().slice(0, 80);
+    const pn = iPay >= 0 ? norm(r[iPay]).trim() : "", payer = pn ? (members().find(m => norm(m.name).trim() === pn) || {}).id : null;
+    const cn = iCat >= 0 ? norm(r[iCat]).trim() : "", cat = cn ? (allCats().find(c => norm(c.name).trim() === cn || cn.includes(norm(c.name).trim())) || {}).id : null;
+    out.push({date, label, amount, payer:payer || null, cat:cat || null});
   }
   return out;
 }
@@ -6599,12 +6626,23 @@ $("#impFile").addEventListener("change", async e => {
   try {
     const buf = await f.arrayBuffer();
     let text; try { text = new TextDecoder("utf-8", {fatal:true}).decode(buf); } catch { text = new TextDecoder("windows-1252").decode(buf); }
-    const rows = parseBank(text);
-    if (!rows.length) throw new Error("Aucun débit trouvé dans ce fichier.");
-    const existing = new Set(state.expenses.map(x => x.date + "|" + x.amount));
+    const kind = /<OFX>|OFXHEADER|<STMTTRN>/i.test(text) ? "ofx" : /^\s*!Type:/im.test(text) || /^\^\s*$/m.test(text) && /^D/m.test(text) ? "qif" : "csv";
+    const rows = kind === "ofx" ? parseOFX(text) : kind === "qif" ? parseQIF(text) : parseBank(text);
+    if (!rows.length) throw new Error("Aucune opération trouvée dans ce fichier.");
+    if (needsAccountFirst()) { impDlg.close(); return; }
+    // Doublons : (1) identifiant d'import déjà connu = sûr ; (2) même montant à ±2 jours = probable.
+    const mine = state.expenses.concat(state.incomes), known = new Set(mine.map(x => x.importId).filter(Boolean));
+    const near = (r, l) => l.some(x => x.amount === Math.abs(r.amount) && Math.abs(daysBetween(x.date, r.date)) <= 2);
     const names = members().map(m => m.name.toLowerCase()).filter(n => n.length > 2);
     const isTransfer = l => { const x = l.toLowerCase(); return /\bvir(ement)?\b|\bvrt\b|\bvir sepa\b/.test(x) && (names.some(n => x.includes(n)) || /livret|epargne|épargne|compte joint|interne|pel\b|ldd/.test(x)); };
-    impRows = rows.map(r => { const dup = existing.has(r.date + "|" + r.amount), tr = isTransfer(r.label); return {...r, cat:r.cat || guessCat(r.label), dup, tr, sel:!dup && !tr}; });
+    const seen = {};
+    impRows = rows.map(r => {
+      const base = "imp:" + (r.fitid ? "f:" + r.fitid : `h:${r.date}|${r.amount}|${norm(r.label).replace(/\s+/g, " ").trim()}`);
+      const importId = base + (seen[base] ? "#" + seen[base] : ""); seen[base] = (seen[base] || 0) + 1;   // deux cafés identiques le même jour restent deux lignes
+      const inc = r.amount > 0, sure = known.has(importId), dup = !sure && near(r, inc ? state.incomes : state.expenses), tr = isTransfer(r.label);
+      return {...r, amount:Math.abs(r.amount), inc, importId, cat:inc ? null : r.cat || guessCat(r.label), sure, dup, tr, sel:!sure && !dup && !tr};
+    });
+    $("#impAccount").innerHTML = state.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
     $("#impPayer").innerHTML = members().map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("");
     $("#impPayer").value = me() || members()[0]?.id || "";
     renderImp(); $("#impBody").hidden = false;
@@ -6613,13 +6651,13 @@ $("#impFile").addEventListener("change", async e => {
 function renderImp(){
   const opts = id => allCats().map(c => `<option value="${esc(c.id)}" ${c.id === id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
   $("#impTable").innerHTML = `<thead><tr><th>Libellé</th><th>Date</th><th>Montant</th><th>Catégorie</th><th>Importer</th></tr></thead><tbody>` +
-    impRows.map((r, i) => `<tr><td>${esc(r.label)}${r.dup ? ` <span class="up small">déjà présent ?</span>` : ""}${r.tr ? ` <span class="up small">virement interne ?</span>` : ""}</td><td>${fmtDay(r.date)}</td><td>${fmt(r.amount)}</td>
-      <td><select data-ic="${i}" class="inp" style="padding:6px">${opts(r.cat)}</select></td>
+    impRows.map((r, i) => `<tr><td>${esc(r.label)}${r.sure ? ` <span class="up small">déjà importé</span>` : r.dup ? ` <span class="up small">doublon probable</span>` : ""}${r.tr ? ` <span class="up small">virement interne ?</span>` : ""}</td><td>${fmtDay(r.date)}</td><td class="${r.inc ? "down" : ""}" style="white-space:nowrap">${r.inc ? "+" : "−"}${fmt(r.amount)}</td>
+      <td>${r.inc ? `<span class="muted small">Revenu</span>` : `<select data-ic="${i}" class="inp" style="padding:6px" aria-label="Catégorie de ${esc(r.label)}">${opts(r.cat)}</select>`}</td>
       <td style="text-align:center"><input type="checkbox" class="cbx" data-is="${i}" ${r.sel ? "checked" : ""} aria-label="Importer ${esc(r.label)}"></td></tr>`).join("") + `</tbody>`;
-  const n = impRows.filter(r => r.sel).length;
-  const nt = impRows.filter(r => r.tr).length;
-  $("#impInfo").textContent = `${impRows.length} débits trouvés` + (nt ? ` · ${nt} virement${nt > 1 ? "s" : ""} entre vous ou vers l'épargne décoché${nt > 1 ? "s" : ""}` : "");
-  $("#impGo").textContent = `Importer ${n} dépense${n > 1 ? "s" : ""}`; $("#impGo").disabled = !n;
+  const sel = impRows.filter(r => r.sel), ne = sel.filter(r => !r.inc).length, ni = sel.length - ne;
+  const nt = impRows.filter(r => r.tr).length, nd = impRows.filter(r => r.sure || r.dup).length;
+  $("#impInfo").textContent = `${impRows.length} opérations trouvées` + (nd ? ` · ${nd} déjà présente${nd > 1 ? "s" : ""} décochée${nd > 1 ? "s" : ""}` : "") + (nt ? ` · ${nt} virement${nt > 1 ? "s" : ""} interne${nt > 1 ? "s" : ""} décoché${nt > 1 ? "s" : ""}` : "");
+  $("#impGo").textContent = sel.length ? `Importer ${[ne ? `${ne} dépense${ne > 1 ? "s" : ""}` : "", ni ? `${ni} revenu${ni > 1 ? "s" : ""}` : ""].filter(Boolean).join(" et ")}` : "Importer"; $("#impGo").disabled = !sel.length;
 }
 $("#impTable").addEventListener("change", e => {
   const t = e.target;
@@ -6628,15 +6666,16 @@ $("#impTable").addEventListener("change", e => {
 });
 $("#impGo").addEventListener("click", async () => {
   const sel = impRows.filter(r => r.sel); if (!sel.length) return;
-  const payer = $("#impPayer").value, shares = currentWeights();
+  const payer = $("#impPayer").value, shares = currentWeights(), accountId = $("#impAccount").value || null;
   const b = $("#impGo"); b.disabled = true;
   let n = 0;
   try {
     for (const r of sel) {
-      await store.upsert("expenses", {amount:r.amount, label:r.label, cat:r.cat, payer:r.payer || payer, split:"all", shares, date:r.date, by:me() || null, imported:true, createdAt:Date.now()});
+      if (r.inc) await store.upsert("incomes", {amount:r.amount, label:r.label, who:payer || "", accountId, date:r.date, by:me() || null, imported:true, importId:r.importId, createdAt:Date.now()});
+      else await store.upsert("expenses", {amount:r.amount, label:r.label, cat:r.cat, payer:r.payer || payer, split:"all", shares, accountId, date:r.date, by:me() || null, imported:true, importId:r.importId, createdAt:Date.now()});
       n++; if (n % 10 === 0) $("#impInfo").textContent = `${n} / ${sel.length} importées…`;
     }
-    impDlg.close(); toast(`${n} dépense${n > 1 ? "s" : ""} importée${n > 1 ? "s" : ""}`);
+    impDlg.close(); toast(`${n} opération${n > 1 ? "s" : ""} importée${n > 1 ? "s" : ""}`);
   } catch (e) { handleWriteError(e); $("#impInfo").textContent = `${n} importées avant l'erreur.`; }
   finally { b.disabled = false; }
 });
