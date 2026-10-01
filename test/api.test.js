@@ -184,3 +184,19 @@ test("groupes publics : ajout anonyme avec jeton, modification sans le bon jeton
   });
   assert.equal(delOk.status, 200);
 });
+
+test("groupes publics : un code devise qui n'est pas 3 lettres ISO est refusé (régression XSS fmtCur)", async () => {
+  const { c } = await freshVerifiedUser("Test Devise");
+  const hh = await c("POST", "/api/households", { name: "Foyer Devise" });
+  const hid = hh.data.id;
+  const gid = "g1";
+  await c("PUT", `/api/h/${hid}/doc`, { coll: "groupes", id: gid, data: { name: "Trip", people: [{ id: "p1", name: "Moi" }], items: [] } });
+  const link = await c("POST", `/api/h/${hid}/groups/${gid}/link/rotate`);
+  const token = link.data.token;
+
+  const addItem = await fetch(`${BASE}/api/public/group/${token}/item`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-PC": "1" },
+    body: JSON.stringify({ payerName: "Ami", label: "Resto", amount: 10, currency: "<img src=x onerror=alert(1)>", rate: 1, origAmount: 10 }),
+  });
+  assert.equal(addItem.status, 400);
+});

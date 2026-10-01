@@ -77,10 +77,13 @@ const bad = (code, msg) => new HttpError(400, code, msg);
 const h = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 /* Mots de passe : scrypt (intégré à Node, sans dépendance native) */
+// N=2^17 (recommandation OWASP actuelle pour scrypt en usage interactif) ; stocké dans le hash,
+// donc les anciens hash (N=2^15) restent vérifiables sans migration — seuls les nouveaux en profitent.
+const SCRYPT_N = 131072, SCRYPT_MAXMEM = 192 * 1024 * 1024;
 function hashPassword(pw) {
   return new Promise((ok, ko) => {
     const salt = crypto.randomBytes(16);
-    crypto.scrypt(pw, salt, 64, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (e, k) => e ? ko(e) : ok(`scrypt$32768$${salt.toString("base64")}$${k.toString("base64")}`));
+    crypto.scrypt(pw, salt, 64, { N: SCRYPT_N, r: 8, p: 1, maxmem: SCRYPT_MAXMEM }, (e, k) => e ? ko(e) : ok(`scrypt$${SCRYPT_N}$${salt.toString("base64")}$${k.toString("base64")}`));
   });
 }
 function verifyPassword(pw, stored) {
@@ -88,10 +91,10 @@ function verifyPassword(pw, stored) {
     const [alg, n, salt, hash] = String(stored).split("$");
     if (alg !== "scrypt") return ok(false);
     const exp = Buffer.from(hash, "base64");
-    crypto.scrypt(pw, Buffer.from(salt, "base64"), exp.length, { N: +n, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (e, k) => ok(!e && crypto.timingSafeEqual(k, exp)));
+    crypto.scrypt(pw, Buffer.from(salt, "base64"), exp.length, { N: +n, r: 8, p: 1, maxmem: SCRYPT_MAXMEM }, (e, k) => ok(!e && crypto.timingSafeEqual(k, exp)));
   });
 }
-const DUMMY_HASH = "scrypt$32768$AAAAAAAAAAAAAAAAAAAAAA==$" + Buffer.alloc(64).toString("base64");
+const DUMMY_HASH = `scrypt$${SCRYPT_N}$AAAAAAAAAAAAAAAAAAAAAA==$` + Buffer.alloc(64).toString("base64");
 function checkPassword(pw) {
   if (typeof pw !== "string" || pw.length < 10) throw bad("weak_password", "Le mot de passe doit contenir au moins 10 caractères.");
   if (pw.length > 200) throw bad("weak_password", "Mot de passe trop long.");
@@ -116,9 +119,14 @@ function totpCheck(secret, code, lastStep) {
 
 /* Limitation de débit (en mémoire) */
 const hits = new Map();
+const HITS_MAX_KEYS = 50000; // borne la mémoire face à un flot de clés distinctes (ex. e-mails forgés en boucle)
 function limit(key, max, windowMs) {
   const t = Date.now(), e = hits.get(key);
-  if (!e || e.reset < t) { hits.set(key, { n: 1, reset: t + windowMs }); return; }
+  if (!e || e.reset < t) {
+    if (hits.size >= HITS_MAX_KEYS) hits.delete(hits.keys().next().value);
+    hits.set(key, { n: 1, reset: t + windowMs });
+    return;
+  }
   if (++e.n > max) throw new HttpError(429, "rate_limited", "Trop de tentatives. Réessayez dans quelques minutes.");
 }
 setInterval(() => { const t = Date.now(); for (const [k, v] of hits) if (v.reset < t) hits.delete(k); }, 60000).unref();
@@ -603,6 +611,7 @@ app.get("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
 }));
 app.put("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  limit("doc-write:" + req.user.id, 600, 10 * 60e3);
   const coll = String(req.body.coll || ""), id = String(req.body.id || ""), data = req.body.data;
   const owner = docOwner(coll, req.user.id);
   if (!ID_RE.test(id)) throw bad("bad_id", "Identifiant invalide.");
@@ -623,6 +632,7 @@ app.put("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
 }));
 app.delete("/api/h/:hid/doc", requireUser, member, h(async (req, res) => {
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
+  limit("doc-write:" + req.user.id, 600, 10 * 60e3);
   const coll = String(req.query.coll || ""), id = String(req.query.id || ""), owner = docOwner(coll, req.user.id);
   if (!ID_RE.test(id)) throw bad("bad_id", "Identifiant invalide.");
   await asUser(req.user.id, async c => {
@@ -711,7 +721,7 @@ async function checkClaim(gl, type, subjectId, token) {
   if (!token) throw new HttpError(403, "not_granted", "Modification impossible depuis cet appareil.");
   const r = (await q("SELECT * FROM group_claims WHERE household_id = $1 AND group_id = $2 AND subject_type = $3 AND subject_id = $4",
     [gl.household_id, gl.group_id, type, subjectId])).rows[0];
-  if (!r || sha(token) !== r.token_hash) throw new HttpError(403, "not_granted", "Modification impossible depuis cet appareil.");
+  if (!r || !crypto.timingSafeEqual(Buffer.from(sha(token)), Buffer.from(r.token_hash))) throw new HttpError(403, "not_granted", "Modification impossible depuis cet appareil.");
   if (Date.now() - new Date(r.created_at).getTime() > CLAIM_WINDOW_MS) throw new HttpError(403, "expired", "Le délai de modification (30 minutes) est dépassé.");
 }
 function withGroupDoc(gl, fn) {
@@ -758,7 +768,8 @@ app.post("/api/public/group/:token/item", h(async (req, res) => {
   const cat = req.body.cat ? String(req.body.cat).slice(0, 20) : null;
   const photo = req.body.photo != null ? String(req.body.photo) : null;
   if (photo && (!/^data:image\/(png|jpe?g|webp);base64,/.test(photo) || photo.length > 120000)) throw bad("bad_data", "Photo invalide.");
-  const currency = req.body.currency ? String(req.body.currency).slice(0, 6) : null;
+  const currency = req.body.currency ? String(req.body.currency).trim().toUpperCase().slice(0, 6) : null;
+  if (currency && !/^[A-Z]{3}$/.test(currency)) throw bad("bad_data", "Code devise invalide.");
   const rate = currency ? +req.body.rate : null;
   const origAmount = currency ? +req.body.origAmount : null;
   if (!label || !(amount > 0) || amount > 1000000) throw bad("bad_data", "Dépense invalide.");

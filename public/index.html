@@ -1682,7 +1682,7 @@ let HIDE = false;
 const fmt = c => HIDE ? "••• €" : eur.format(Math.round(c || 0) / 100);
 let eur0 = new Intl.NumberFormat("fr-FR", {style:"currency", currency:"EUR", maximumFractionDigits:0});
 const fmt0 = c => HIDE ? "•••\u00a0€" : eur0.format(Math.round(c || 0) / 100);
-const fmtCur = (c, cur) => { if (HIDE) return "•••"; try { return new Intl.NumberFormat("fr-FR", {style:"currency", currency:cur}).format((c||0)/100); } catch { return ((c||0)/100).toFixed(2) + " " + cur; } };
+const fmtCur = (c, cur) => { if (HIDE) return "•••"; try { return new Intl.NumberFormat("fr-FR", {style:"currency", currency:cur}).format((c||0)/100); } catch { return esc(((c||0)/100).toFixed(2) + " " + cur); } };
 const parseAmount = s => { const v = parseFloat(String(s ?? "").replace(/[\s\u00a0\u202f€]/g,"").replace(",", ".")); return Number.isFinite(v) ? Math.round(v*100) : NaN; };
 const parseNum = s => { const v = parseFloat(String(s ?? "").replace(/\s/g,"").replace(",", ".")); return Number.isFinite(v) ? v : NaN; };
 const toInput = c => c ? (c/100).toFixed(2).replace(".", ",").replace(/,00$/, "") : "";
@@ -6347,6 +6347,9 @@ function loadJsPdf(){
   return jsPdfP || (jsPdfP = new Promise((res, rej) => {
     const s = document.createElement("script");
     s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.integrity = "sha512-qZvrmS2ekKPF2mSznTQsxqPgnpkI4DNTlrdUmTzrDgektczlKNRRhy5X5AAOnx5S09ydFYWWNSfcEqDTTHgtNA==";
+    s.crossOrigin = "anonymous";
+    s.referrerPolicy = "no-referrer";
     s.onload = () => window.jspdf ? res(window.jspdf) : rej(new Error("jsPDF"));
     s.onerror = () => { jsPdfP = null; rej(new Error("jsPDF")); };
     document.head.appendChild(s);
