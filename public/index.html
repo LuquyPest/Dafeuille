@@ -283,6 +283,10 @@ h3{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em
 .empty strong{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
 .empty .btn{display:inline-flex;margin-top:12px}
 .fsteps{margin-bottom:16px}
+#budRows .erow{display:grid;grid-template-columns:minmax(0,1fr) 110px 120px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+#budRows .sp{font-size:.8rem;color:var(--muted);text-align:right;white-space:nowrap}
+#budRows .sp.over{color:var(--danger);font-weight:600}
+@media (max-width:520px){#budRows .erow{grid-template-columns:minmax(0,1fr) 96px}#budRows .sp{grid-column:1/-1;text-align:left;margin-top:-4px}}
 .fsteps .phead{display:flex;align-items:center;gap:10px}
 .fsteps .bar{height:6px;border-radius:6px;background:var(--sunk);overflow:hidden;margin:8px 0 12px}
 .fsteps .bar i{display:block;height:100%;background:var(--accent);border-radius:inherit;transition:width .3s}
@@ -643,7 +647,7 @@ img.av{object-fit:cover}
         </section>
 
         <section class="panel" aria-label="Par catégorie">
-          <h2>Par catégorie</h2>
+          <div class="phead"><h2>Par catégorie</h2><button class="btn sm ghost" id="budgetsBtn">Budgets</button></div>
           <ul class="legend" id="legend" style="margin:0"></ul>
         </section>
 
@@ -1595,6 +1599,17 @@ img.av{object-fit:cover}
 </dialog>
 
 <!-- ============ Corbeille ============ -->
+<dialog id="budDlg" class="wide" aria-labelledby="budTitle">
+  <form class="sheet" id="budForm" novalidate>
+    <div class="sheet-head"><h2 id="budTitle">Budgets du mois</h2><button type="button" class="linkbtn" data-close>Annuler</button></div>
+    <p class="small muted" style="margin:0 0 12px">Laissez vide pour ne pas suivre une catégorie. Vous êtes alerté dès <b id="budPct">80 %</b> d'un budget, et au dépassement.</p>
+    <div class="field"><label for="budTotal">Budget total du foyer (€ / mois)</label><input class="inp" id="budTotal" inputmode="decimal" placeholder="facultatif"></div>
+    <div id="budRows"></div>
+    <p class="err" id="budErr" role="alert"></p>
+    <div class="actions"><button type="submit" class="btn push">Enregistrer</button></div>
+  </form>
+</dialog>
+
 <dialog id="keysDlg" aria-labelledby="keysTitle">
   <div class="sheet">
     <div class="sheet-head"><h2 id="keysTitle">Raccourcis clavier</h2><button type="button" class="linkbtn" data-close>Fermer</button></div>
@@ -2194,6 +2209,60 @@ function alertsList(){
   return out;
 }
 
+/* Alerte immédiate quand une dépense fait franchir un seuil de budget (global ou catégorie) :
+   on compare l'état avant/après une rafale d'écritures, quelle qu'en soit l'origine. */
+function budgetLevels(){
+  const k = curKey(), list = inMonth(state.expenses, k).filter(bud), out = {}, budget = state.settings.budget || 0;
+  if (budget > 0) out._total = {name:"Budget du mois", v:totalOf(list), b:budget};
+  const byCat = sumBy(list, e => catOf(e.cat).id);
+  Object.entries(state.settings.catBudgets || {}).forEach(([id, b0]) => { if (b0 > 0) out[id] = {name:catOf(id).name, v:byCat[id] || 0, b:catAvail(id, k).avail}; });
+  return out;
+}
+function budgetNudge(before){
+  const pct = (state.settings.alertPct || 80) / 100, after = budgetLevels(); let best = null;
+  for (const [id, a] of Object.entries(after)) {
+    const b = before[id] || {v:0, b:a.b}, r0 = b.b > 0 ? b.v / b.b : 0, r1 = a.b > 0 ? a.v / a.b : 1;
+    const lvl = r1 >= 1 && r0 < 1 ? 2 : r1 >= pct && r0 < pct ? 1 : 0;
+    if (lvl && (!best || lvl > best.lvl)) best = {lvl, a, r1};
+  }
+  if (!best) return;
+  const {a, r1} = best;
+  toast(best.lvl === 2 ? `⚠ ${a.name} : budget dépassé de ${fmt(a.v - a.b)}` : `${a.name} : ${Math.round(r1 * 100)} % du budget utilisé · reste ${fmt(a.b - a.v)}`, "Budgets", () => openBudgets());
+}
+{
+  const up = store.upsert.bind(store); let before = null, t = null;
+  store.upsert = async (list, item) => {
+    const watch = list === "expenses" || list === "privates";
+    if (watch && !before) before = budgetLevels();
+    const r = await up(list, item);
+    if (watch) { clearTimeout(t); t = setTimeout(() => { const b = before; before = null; budgetNudge(b); }, 400); }
+    return r;
+  };
+}
+const budDlg = $("#budDlg");
+function openBudgets(){
+  const k = curKey(), byCat = sumBy(inMonth(state.expenses, k).filter(bud), e => catOf(e.cat).id), cb = state.settings.catBudgets || {};
+  $("#budPct").textContent = (state.settings.alertPct || 80) + " %";
+  $("#budTotal").value = toInput(state.settings.budget || 0); $("#budErr").textContent = "";
+  $("#budRows").innerHTML = allCats().map(c => { const v = byCat[c.id] || 0, b = cb[c.id] || 0;
+    return `<div class="erow"><span class="cn">${ci(c)} ${esc(c.name)}</span><span class="sp ${b && v > b ? "over" : ""}">${fmt(v)} dépensés</span><input class="inp r" data-bud="${esc(c.id)}" inputmode="decimal" value="${b ? toInput(b) : ""}" placeholder="—" aria-label="Budget ${esc(c.name)} en euros"></div>`; }).join("");
+  budDlg.showModal();
+}
+$("#budgetsBtn").addEventListener("click", openBudgets);
+$("#budForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const tot = $("#budTotal").value.trim() ? parseAmount($("#budTotal").value) : 0;
+  if (!Number.isFinite(tot) || tot < 0) { $("#budErr").textContent = "Le budget total doit être un montant, par exemple 1800."; return; }
+  const catBudgets = {};
+  for (const i of $$("#budRows [data-bud]")) {
+    if (!i.value.trim()) continue;
+    const v = parseAmount(i.value);
+    if (!Number.isFinite(v) || v < 0) { $("#budErr").textContent = "Montant invalide pour une catégorie."; i.focus(); return; }
+    if (v > 0) catBudgets[i.dataset.bud] = v;
+  }
+  try { await store.saveSettings({...state.settings, budget:tot, catBudgets}); budDlg.close(); toast("Budgets enregistrés"); } catch (e) { handleWriteError(e); }
+});
+
 /* Enveloppes : budget disponible d'une catégorie pour un mois, avec report */
 function catAvail(id, k){
   const b = (state.settings.catBudgets || {})[id] || 0;
@@ -2252,7 +2321,7 @@ function render(){
   $("#settingsBtn").disabled = !canEdit;
   $("#exportBtn").hidden = !ready;
   $$("[data-edit]").forEach(b => b.disabled = !canEdit);
-  ["#addIncome","#addGoal","#addTodo","#addKid","#addProject","#addAccount","#addTransfer","#addDebt","#addChal","#addGroup","#addWish","#addEvent","#addPaper","#addWarranty","#addMeter","#potAdd","#selToggle","#quickDesk","#addChore","#addHealth","#addInv","#addCar"].forEach(s => $(s).disabled = !canEdit);
+  ["#addIncome","#addGoal","#addTodo","#addKid","#addProject","#addAccount","#addTransfer","#addDebt","#addChal","#addGroup","#addWish","#addEvent","#addPaper","#addWarranty","#addMeter","#potAdd","#selToggle","#quickDesk","#addChore","#addHealth","#addInv","#addCar","#budgetsBtn"].forEach(s => $(s).disabled = !canEdit);
   $("#quickFab").hidden = !canEdit || state.tab !== "budget";
   $("#hideBtn").setAttribute("aria-pressed", String(HIDE)); $("#hideBtn").innerHTML = I(HIDE ? "eye-off" : "eye");
 
