@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const express = require("express");
+const compression = require("compression");
 const { Pool, Client } = require("pg");
 const nodemailer = require("nodemailer");
 const QRCode = require("qrcode");
@@ -209,13 +210,17 @@ const requireUser = (req, res, next) => (req.user && !req.sess.mfaPending) ? nex
 const app = express();
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
+app.use(compression());
 app.use((req, res, next) => {
+  req.nonce = crypto.randomBytes(16).toString("base64");
   res.set({
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "same-origin",
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(self), geolocation=(), microphone=()",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    // 'unsafe-inline' reste en repli pour les navigateurs qui ignorent les nonces : un navigateur qui
+    // comprend 'nonce-'/'strict-dynamic' les ignore automatiquement (CSP Level 2+), sans régression ailleurs.
+    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'nonce-${req.nonce}' 'strict-dynamic' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
   });
   if (CFG.secure) res.set("Strict-Transport-Security", "max-age=31536000");
   req.id = crypto.randomBytes(6).toString("base64url");
@@ -230,6 +235,13 @@ app.use("/api", (req, res, next) => {
 app.use("/api", h(loadSession));
 
 app.get("/api/health", h(async (req, res) => { await q("SELECT 1"); res.json({ ok: true }); }));
+
+/* Page principale : servie dynamiquement (pas par express.static) pour injecter un nonce CSP
+   différent à chaque requête sur les <script> inline — lu une seule fois, gardé en mémoire. */
+const INDEX_HTML = fs.readFileSync(path.join(CFG.publicDir, "index.html"), "utf8");
+app.get(["/", "/index.html"], (req, res) => {
+  res.set("Cache-Control", "no-cache").type("html").send(INDEX_HTML.replaceAll("__CSP_NONCE__", req.nonce));
+});
 
 /* ---------------------------- Authentification ---------------------------- */
 const GENERIC_SENT = { ok: true, message: "Si l'adresse est valide, un e-mail vient d'être envoyé." };
@@ -875,8 +887,8 @@ async function startListener() {
 
 /* ---------------------------- Fichiers de l'app ---------------------------- */
 app.use(express.static(CFG.publicDir, {
-  index: "index.html",
-  setHeaders: (res, p) => { if (/index\.html$|sw\.js$|manifest\.json$/.test(p)) res.set("Cache-Control", "no-cache"); else res.set("Cache-Control", "public, max-age=86400"); }
+  index: false,
+  setHeaders: (res, p) => { if (/sw\.js$|manifest\.json$/.test(p)) res.set("Cache-Control", "no-cache"); else res.set("Cache-Control", "public, max-age=86400"); }
 }));
 
 /* ---------------------------- Erreurs ---------------------------- */

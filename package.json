@@ -4,9 +4,15 @@
   "private": true,
   "description": "DAFeuille — gestion des dépenses du foyer (serveur)",
   "main": "src/server.js",
-  "scripts": { "start": "node src/server.js", "test": "node --test" },
-  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "compression": "^1.8.2",
     "express": "^4.21.2",
     "nodemailer": "^10.0.13",
     "pg": "^8.13.1",
