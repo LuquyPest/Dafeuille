@@ -3341,7 +3341,6 @@ $("#kids").addEventListener("click", async e => {
 });
 
 /* ================= Projets ================= */
-function projectSpent(id){ return totalOf(state.expenses.filter(e => e.project === id)); }
 function renderProjects(canEdit){
   const ps = state.projects.slice().sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0) || (b.createdAt || 0) - (a.createdAt || 0));
   if (!ps.length) { $("#projects").innerHTML = emptyState("plane", "Aucun projet ou voyage en cours", "addProject", "+ Nouveau projet"); return; }
