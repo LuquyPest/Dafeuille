@@ -494,6 +494,20 @@ app.get("/api/me/export", requireUser, h(async (req, res) => {
     sessions,
   });
 }));
+function csvRow(cells) { return cells.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";"); }
+app.get("/api/me/export.csv", requireUser, h(async (req, res) => {
+  const u = req.user;
+  const households = (await q(`SELECT h.id, h.name FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY m.created_at`, [u.id])).rows;
+  const rows = [["Foyer", "Type", "Date", "Libellé", "Catégorie", "Montant (€)"]];
+  for (const hh of households) {
+    const docs = (await asUser(u.id, c => c.query("SELECT coll, data FROM docs WHERE household_id = $1 AND coll IN ('expenses','revenus') AND (owner = '' OR owner = $2)", [hh.id, u.id]))).rows;
+    for (const d of docs) {
+      rows.push([hh.name, d.coll === "expenses" ? "Dépense" : "Revenu", d.data.date || "", d.data.label || "", d.data.cat || "", ((d.data.amount || 0) / 100).toFixed(2).replace(".", ",")]);
+    }
+  }
+  res.setHeader("Content-Disposition", `attachment; filename="dafeuille-transactions-${u.id}.csv"`);
+  res.type("text/csv; charset=utf-8").send("﻿" + rows.map(csvRow).join("\r\n"));
+}));
 
 app.delete("/api/me", requireUser, h(async (req, res) => {
   limit("delacc:" + req.user.id, 5, 3600e3);
