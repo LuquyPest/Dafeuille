@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Icon, Logo } from "../ui/icons.jsx";
 import { api, SV, refreshMe, logout } from "../data/store.js";
+import { passkeySupported, loginWithPasskey } from "../data/webauthn.js";
 
 const params = new URLSearchParams(location.search);
 export const clearParams = () => history.replaceState(null, "", location.pathname);
@@ -38,6 +39,21 @@ function Form({ id, onSubmit, submit, children, style, btnClass = "" }){
   );
 }
 const Link = ({ onClick, children }) => <button type="button" className="linkbtn" onClick={onClick}>{children}</button>;
+function PasskeyLogin({ onOk, onMfa }){
+  const [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const go = async () => {
+    setErr(""); setBusy(true);
+    try { const r = await loginWithPasskey(); if (r.mfa) onMfa(); else await onOk(); }
+    catch (e) { if (!e || e.name !== "NotAllowedError") setErr((e && e.message) || "Échec de la connexion."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="mb10">
+      <button type="button" className="btn ghost wfull" disabled={busy} onClick={go}><Icon name="shield-check" />Se connecter avec une clé d'accès</button>
+      <p className="err" role="alert">{err}</p>
+    </div>
+  );
+}
 
 /** Pilote des écrans d'accueil ; appelle onOpen(hid) quand un foyer doit être ouvert. */
 export function AuthFlow({ initial, onOpen }){
@@ -55,6 +71,7 @@ export function AuthFlow({ initial, onOpen }){
     case "login": return (
       <AuthCard>
         <h1>Connexion</h1><p className="sub">Retrouvez vos foyers et vos comptes.</p><Msg text={s.msg} ok={s.ok} />
+        {passkeySupported() && <PasskeyLogin onOk={() => afterLogin(true)} onMfa={() => go("mfa")} />}
         <Form id="fLogin" submit="Se connecter" onSubmit={async v => { const r = await api("POST", "/api/auth/login", v); if (r.mfa) go("mfa"); else await afterLogin(true); }}>
           <Field name="email" label="E-mail" type="email" autoComplete="email" required autoFocus />
           <Field name="password" label="Mot de passe" type="password" autoComplete="current-password" required />

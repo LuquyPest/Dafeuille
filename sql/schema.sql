@@ -170,6 +170,23 @@ CREATE POLICY group_claims_select ON group_claims FOR SELECT USING (true);
 DROP POLICY IF EXISTS group_claims_insert ON group_claims;
 CREATE POLICY group_claims_insert ON group_claims FOR INSERT WITH CHECK (pc_role(household_id) IN ('owner','contributor'));
 
+-- Clés d'accès (passkeys / WebAuthn) : facteur de connexion alternatif au mot de passe, lié à
+-- l'appareil (clé privée jamais transmise au serveur). public_key est la clé publique COSE (non
+-- secrète par nature) ; counter sert à détecter un clonage d'authentificateur (doit toujours croître).
+CREATE TABLE IF NOT EXISTS passkeys (
+  id            text PRIMARY KEY,                 -- identifiant de credential (base64url), fourni par le navigateur
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  public_key    text NOT NULL,
+  counter       bigint NOT NULL DEFAULT 0,
+  transports    jsonb,
+  device_type   text,
+  backed_up     boolean NOT NULL DEFAULT false,
+  name          text NOT NULL DEFAULT '',
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  last_used_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS passkeys_user_idx ON passkeys (user_id);
+
 -- Historique des gains d'XP (graphique de progression, séries de jours actifs).
 CREATE TABLE IF NOT EXISTS xp_events (
   id      bigserial PRIMARY KEY,

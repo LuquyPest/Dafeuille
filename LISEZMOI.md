@@ -36,7 +36,9 @@ ne pourront alors s'inscrire que par invitation (`docker compose up -d` pour app
 ## Fonctionnement des comptes
 
 - **Inscription** : e-mail + mot de passe (10 caractères minimum), puis e-mail de confirmation obligatoire.
-- **Connexion** : mot de passe, ou lien de connexion reçu par e-mail (valable 15 min, usage unique).
+- **Connexion** : mot de passe, lien de connexion reçu par e-mail (valable 15 min, usage unique), ou
+  **clé d'accès** (passkey — empreinte, visage ou code de l'appareil, sans mot de passe ; à ajouter dans
+  Réglages › Mon compte, rien à configurer côté serveur).
 - **Double authentification** (Réglages › Mon compte) : application TOTP (Google Authenticator, Microsoft
   Authenticator, 1Password…) + 10 codes de secours.
 - **Mot de passe oublié** : lien par e-mail valable 1 heure ; toutes les sessions sont alors fermées.
@@ -66,6 +68,10 @@ Les « dépenses perso » restent visibles uniquement par leur auteur, même au 
 - Cookies `HttpOnly`, `Secure`, `SameSite` ; protection anti-CSRF ; limitation des tentatives de connexion.
 - En-têtes de sécurité (HSTS…), HTTPS automatique, et CSP stricte : aucun script ni style en ligne,
   aucun script tiers (l'interface est un bundle servi par le serveur ; seules les polices viennent de Google Fonts).
+- **Secrets 2FA chiffrés au repos** (optionnel) : ajoutez `ENCRYPTION_KEY=` (générée avec
+  `openssl rand -base64 32`) dans `.env` pour que les secrets TOTP soient chiffrés (AES-256-GCM) en base
+  plutôt qu'en clair. Sans cette variable, ils restent en clair comme avant — aucune donnée existante
+  n'est perdue dans un cas comme dans l'autre, seules les nouvelles activations en profitent.
 
 ## Développement de l'interface
 

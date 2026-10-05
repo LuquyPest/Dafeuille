@@ -9,6 +9,7 @@ const { Pool, Client } = require("pg");
 const nodemailer = require("nodemailer");
 const QRCode = require("qrcode");
 const webpush = require("web-push");
+const { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } = require("@simplewebauthn/server");
 
 /* ============================ Configuration ============================ */
 const env = process.env;
@@ -34,7 +35,27 @@ if (CFG.vapid) webpush.setVapidDetails(CFG.vapid.subject, CFG.vapid.pub, CFG.vap
 fs.mkdirSync(CFG.uploadsDir, { recursive: true });
 fs.mkdirSync(path.join(CFG.privateDir, "tickets"), { recursive: true });
 CFG.secure = CFG.appUrl.startsWith("https://");
+CFG.rpID = new URL(CFG.appUrl).hostname;
 const SESSION_DAYS = 30;
+
+/* Chiffrement au repos (AES-256-GCM) des secrets TOTP : si la base fuite, les secrets ne sont pas
+   directement rejouables. Sans ENCRYPTION_KEY, ils restent en clair (dégradation explicite, pas
+   silencieuse) — générer la clé avec `openssl rand -base64 32`. */
+CFG.encKey = env.ENCRYPTION_KEY ? Buffer.from(env.ENCRYPTION_KEY, "base64") : null;
+if (CFG.encKey && CFG.encKey.length !== 32) throw new Error("ENCRYPTION_KEY doit être 32 octets encodés en base64 (openssl rand -base64 32).");
+function encField(plain) {
+  if (plain == null || !CFG.encKey) return plain;
+  const iv = crypto.randomBytes(12), c = crypto.createCipheriv("aes-256-gcm", CFG.encKey, iv);
+  const enc = Buffer.concat([c.update(String(plain), "utf8"), c.final()]);
+  return "enc1:" + Buffer.concat([iv, c.getAuthTag(), enc]).toString("base64");
+}
+function decField(stored) {
+  if (typeof stored !== "string" || !stored.startsWith("enc1:")) return stored; // en clair (ENCRYPTION_KEY absente, ou valeur antérieure à son activation)
+  if (!CFG.encKey) throw new Error("ENCRYPTION_KEY manquante : secret chiffré illisible.");
+  const buf = Buffer.from(stored.slice(5), "base64"), iv = buf.subarray(0, 12), tag = buf.subarray(12, 28), enc = buf.subarray(28);
+  const d = crypto.createDecipheriv("aes-256-gcm", CFG.encKey, iv); d.setAuthTag(tag);
+  return Buffer.concat([d.update(enc), d.final()]).toString("utf8");
+}
 
 /* ============================ Base de données ============================ */
 const pool = new Pool({ connectionString: CFG.dbUrl, max: +(env.DB_POOL || 10) });
@@ -308,7 +329,7 @@ app.post("/api/auth/mfa", h(async (req, res) => {
   const code = String(req.body.code || "").trim();
   const u = req.user;
   let ok = false;
-  const st = totpCheck(u.totp_secret, code, Number(u.totp_last_step));
+  const st = totpCheck(decField(u.totp_secret), code, Number(u.totp_last_step));
   if (st) { ok = true; await q("UPDATE users SET totp_last_step = $2 WHERE id = $1", [u.id, st]); }
   else {
     const hc = sha(code.toUpperCase().replace(/[^A-Z0-9]/g, "")), codes = u.backup_codes || [];
@@ -492,7 +513,7 @@ app.post("/api/me/password", requireUser, h(async (req, res) => {
 }));
 app.post("/api/me/totp/setup", requireUser, h(async (req, res) => {
   const secret = b32enc(crypto.randomBytes(20));
-  await q("UPDATE users SET totp_pending = $2 WHERE id = $1", [req.user.id, secret]);
+  await q("UPDATE users SET totp_pending = $2 WHERE id = $1", [req.user.id, encField(secret)]);
   const label = encodeURIComponent(`${CFG.appName}:${req.user.email}`);
   const url = `otpauth://totp/${label}?secret=${secret}&issuer=${encodeURIComponent(CFG.appName)}&digits=6&period=30`;
   res.json({ secret, url, qr: await QRCode.toDataURL(url, { margin: 1, width: 240 }) });
@@ -500,7 +521,7 @@ app.post("/api/me/totp/setup", requireUser, h(async (req, res) => {
 app.post("/api/me/totp/enable", requireUser, h(async (req, res) => {
   const u = (await q("SELECT * FROM users WHERE id = $1", [req.user.id])).rows[0];
   if (!u.totp_pending) throw bad("no_setup", "Relancez l'activation.");
-  const st = totpCheck(u.totp_pending, req.body.code, 0);
+  const st = totpCheck(decField(u.totp_pending), req.body.code, 0);
   if (!st) throw bad("bad_code", "Code incorrect. Vérifiez l'heure de votre téléphone.");
   const codes = Array.from({ length: 10 }, () => crypto.randomBytes(5).toString("hex").toUpperCase());
   await q("UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_on = true, totp_last_step = $2, backup_codes = $3 WHERE id = $1", [u.id, st, JSON.stringify(codes.map(c => sha(c)))]);
@@ -511,6 +532,86 @@ app.post("/api/me/totp/disable", requireUser, h(async (req, res) => {
   if (!await verifyPassword(String(req.body.password || ""), req.user.pass)) throw new HttpError(401, "bad_password", "Mot de passe incorrect.");
   await q("UPDATE users SET totp_on = false, totp_secret = NULL, totp_pending = NULL, backup_codes = '[]' WHERE id = $1", [req.user.id]);
   res.json({ ok: true });
+}));
+
+/* ---------------------------- Clés d'accès (passkeys / WebAuthn) ----------------------------
+   Facteur de connexion alternatif au mot de passe, résistant au phishing (la clé privée ne quitte
+   jamais l'appareil). Le défi de chaque cérémonie (création/connexion) est gardé en mémoire le temps
+   de l'aller-retour avec le navigateur, comme `hits` ci-dessus pour la limitation de débit. */
+const waChallenges = new Map();
+function waPutChallenge(key, challenge) { waChallenges.set(key, { challenge, exp: Date.now() + 5 * 60e3 }); }
+function waTakeChallenge(key) { const e = waChallenges.get(key); waChallenges.delete(key); return (e && e.exp > Date.now()) ? e.challenge : null; }
+setInterval(() => { const t = Date.now(); for (const [k, v] of waChallenges) if (v.exp < t) waChallenges.delete(k); }, 60000).unref();
+
+app.get("/api/me/passkeys", requireUser, h(async (req, res) => {
+  const rows = (await q("SELECT id, name, device_type, created_at, last_used_at FROM passkeys WHERE user_id = $1 ORDER BY created_at", [req.user.id])).rows;
+  res.json({ passkeys: rows });
+}));
+app.post("/api/me/passkeys/options", requireUser, h(async (req, res) => {
+  limit("passkey-opt:" + req.user.id, 20, 3600e3);
+  const existing = (await q("SELECT id, transports FROM passkeys WHERE user_id = $1", [req.user.id])).rows;
+  const options = await generateRegistrationOptions({
+    rpName: CFG.appName, rpID: CFG.rpID, userName: req.user.email, userID: Buffer.from(req.user.id, "utf8"), userDisplayName: req.user.name,
+    excludeCredentials: existing.map(p => ({ id: p.id, transports: p.transports || undefined })),
+    authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+  });
+  waPutChallenge("reg:" + req.user.id, options.challenge);
+  res.json(options);
+}));
+app.post("/api/me/passkeys", requireUser, h(async (req, res) => {
+  const challenge = waTakeChallenge("reg:" + req.user.id);
+  if (!challenge) throw bad("expired", "La création a expiré, recommencez.");
+  const name = String(req.body.name || "").trim().slice(0, 60) || "Clé d'accès";
+  let verified;
+  try { verified = await verifyRegistrationResponse({ response: req.body.response, expectedChallenge: challenge, expectedOrigin: CFG.appUrl, expectedRPID: CFG.rpID }); }
+  catch (e) { throw bad("bad_response", "Échec de la vérification : " + e.message); }
+  if (!verified.verified) throw bad("bad_response", "Échec de la vérification.");
+  const { credential, credentialDeviceType, credentialBackedUp } = verified.registrationInfo;
+  const n = (await q("SELECT count(*)::int AS n FROM passkeys WHERE user_id = $1", [req.user.id])).rows[0].n;
+  if (n >= 10) throw bad("too_many", "Limite de 10 clés d'accès atteinte.");
+  await q(`INSERT INTO passkeys (id, user_id, public_key, counter, transports, device_type, backed_up, name)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [credential.id, req.user.id, Buffer.from(credential.publicKey).toString("base64"), credential.counter,
+    JSON.stringify(credential.transports || []), credentialDeviceType, credentialBackedUp, name]);
+  res.json({ ok: true });
+}));
+app.patch("/api/me/passkeys/:id", requireUser, h(async (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 60); if (!name) throw bad("bad_name", "Nom requis.");
+  await q("UPDATE passkeys SET name = $3 WHERE id = $1 AND user_id = $2", [req.params.id, req.user.id, name]);
+  res.json({ ok: true });
+}));
+app.delete("/api/me/passkeys/:id", requireUser, h(async (req, res) => {
+  await q("DELETE FROM passkeys WHERE id = $1 AND user_id = $2", [req.params.id, req.user.id]);
+  res.json({ ok: true });
+}));
+// Connexion : clé découvrable (resident key), pas besoin de saisir l'e-mail avant — le navigateur
+// propose directement les clés enregistrées pour ce domaine.
+app.post("/api/auth/passkey/options", h(async (req, res) => {
+  limit("passkey-login:" + req.ip, 20, 15 * 60e3);
+  const options = await generateAuthenticationOptions({ rpID: CFG.rpID, userVerification: "preferred" });
+  const cid = newToken();
+  waPutChallenge("auth:" + cid, options.challenge);
+  res.json({ options, cid });
+}));
+app.post("/api/auth/passkey/verify", h(async (req, res) => {
+  limit("passkey-login:" + req.ip, 20, 15 * 60e3);
+  const challenge = waTakeChallenge("auth:" + String(req.body.cid || ""));
+  if (!challenge) throw new HttpError(401, "bad_credentials", "La connexion a expiré, réessayez.");
+  const credId = req.body.response && req.body.response.id;
+  // p.id/p.name/p.created_at entreraient en collision avec les mêmes colonnes de users : alias explicites.
+  const row = credId ? (await q("SELECT p.id AS pk_id, p.public_key AS pk_public_key, p.counter AS pk_counter, p.transports AS pk_transports, u.* FROM passkeys p JOIN users u ON u.id = p.user_id WHERE p.id = $1", [credId])).rows[0] : null;
+  if (!row) throw new HttpError(401, "bad_credentials", "Clé d'accès inconnue.");
+  let verified;
+  try {
+    verified = await verifyAuthenticationResponse({
+      response: req.body.response, expectedChallenge: challenge, expectedOrigin: CFG.appUrl, expectedRPID: CFG.rpID,
+      credential: { id: row.pk_id, publicKey: Buffer.from(row.pk_public_key, "base64"), counter: Number(row.pk_counter), transports: row.pk_transports || undefined },
+    });
+  } catch (e) { throw new HttpError(401, "bad_credentials", "Échec de la vérification."); }
+  if (!verified.verified) throw new HttpError(401, "bad_credentials", "Échec de la vérification.");
+  await q("UPDATE passkeys SET counter = $2, last_used_at = now() WHERE id = $1", [row.pk_id, verified.authenticationInfo.newCounter]);
+  if (!row.verified_at) throw new HttpError(403, "unverified", "Adresse non confirmée.");
+  await openSession(req, res, row, row.totp_on);
+  res.json({ ok: true, mfa: row.totp_on });
 }));
 
 app.get("/api/me/sessions", requireUser, h(async (req, res) => {
@@ -1168,6 +1269,7 @@ app.post("/api/h/:hid/bank/connect", requireUser, member, h(async (req, res) => 
 // la sécurité tient à l'identifiant de lien (UUID imprévisible, notre "state") rattaché à une demande déjà
 // créée côté serveur — même modèle que les liens de connexion par e-mail ou d'invitation déjà utilisés dans l'app.
 app.get("/api/h/:hid/bank/callback", h(async (req, res) => {
+  limit("bank-callback:" + req.ip, 30, 3600e3);
   const linkId = String(req.query.state || ""), code = String(req.query.code || "");
   const back = (ok, msg) => res.redirect(`${CFG.appUrl}/?h=${encodeURIComponent(req.params.hid)}&bank=${ok ? "ok" : "ko"}${msg ? "&bankmsg=" + encodeURIComponent(msg) : ""}`);
   try {

@@ -6,6 +6,7 @@ import { pref } from "../lib/core.js";
 import { SV, api, toast, refreshMe, logout, clearSnapshots } from "../data/store.js";
 import { Avatar } from "../Shell.jsx";
 import { openDialog } from "../ui/Dialog.jsx";
+import { passkeySupported, registerPasskey } from "../data/webauthn.js";
 
 const ROLE = {owner:"Propriétaire", contributor:"Contributeur", viewer:"Lecteur"};
 const hb = () => `/api/h/${encodeURIComponent(SV.hh.id)}`;
@@ -75,6 +76,33 @@ function Totp(){
   </>;
 }
 
+function Passkeys(){
+  const [list, setList] = useState(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const load = async () => { try { setList((await api("GET", "/api/me/passkeys")).passkeys); } catch (e) { setErr(e.message); } };
+  useEffect(() => { load(); }, []);
+  const add = async () => {
+    setErr(""); setBusy(true);
+    try {
+      const name = prompt("Nom de cette clé (ex. « iPhone de Sam »)", /iPhone|iPad|Mac/.test(navigator.userAgent) ? "Cet appareil" : "Clé d'accès");
+      if (name == null) return;
+      await registerPasskey(name.trim() || "Clé d'accès"); toast("Clé d'accès ajoutée"); load();
+    } catch (e) { if (!e || e.name !== "NotAllowedError") setErr(e.message || "Échec de l'ajout."); }
+    finally { setBusy(false); }
+  };
+  const rename = async p => { const name = prompt("Nouveau nom", p.name); if (!name || !name.trim() || name === p.name) return; try { await api("PATCH", `/api/me/passkeys/${encodeURIComponent(p.id)}`, {name:name.trim()}); load(); } catch (e) { toast(e.message); } };
+  const remove = async p => { if (!confirm(`Supprimer « ${p.name} » ?`)) return; try { await api("DELETE", `/api/me/passkeys/${encodeURIComponent(p.id)}`); toast("Clé supprimée"); load(); } catch (e) { toast(e.message); } };
+  if (!passkeySupported()) return null;
+  return <>
+    <div className="acc-row"><span className="tx">Clés d'accès<span>Empreinte, visage ou code de l'appareil, sans mot de passe</span></span>
+      <button type="button" className="btn sm ghost" disabled={busy} onClick={add}><Icon name="plus" />Ajouter</button></div>
+    {err && <p className="err mt8 m0b">{err}</p>}
+    {list && list.length > 0 && <div>{list.map(p => <div className="acc-row" key={p.id}>
+      <button type="button" className="tx" onClick={() => rename(p)}>{p.name}<span>Ajoutée le {fmtDateTime(p.created_at)}{p.last_used_at ? " · dernière utilisation " + fmtDateTime(p.last_used_at) : ""}</span></button>
+      <button type="button" className="x" aria-label={`Supprimer ${p.name}`} onClick={() => remove(p)}><Icon name="x" /></button>
+    </div>)}</div>}
+  </>;
+}
+
 function Sessions(){
   const [list, setList] = useState(null), [err, setErr] = useState("");
   const load = async () => { try { setList((await api("GET", "/api/me/sessions")).sessions); } catch (e) { setErr(e.message); } };
@@ -133,6 +161,7 @@ export function AccountSection(){
     <div className="field"><span className="lab">Mon compte</span>
       <div className="acc-row"><span className="tx">{SV.me.name || ""}<span>{SV.me.email}</span></span><button type="button" className="btn sm ghost" onClick={logout}>Se déconnecter</button></div>
       <Totp />
+      <Passkeys />
       <div className="acc-row"><Check className="check f1 m0" checked={digest} onChange={setDigestOn}>Recevoir chaque lundi un résumé de la semaine par e-mail</Check></div>
       <Push />
       <details className="more"><summary>Changer le mot de passe</summary>
