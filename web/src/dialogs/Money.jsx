@@ -222,7 +222,7 @@ function BudgetsDialog({ onClose }){
     <Dialog title="Budgets du mois" wide onClose={onClose} onSubmit={submit}>
       <p className="small muted mb12">Laissez vide pour ne pas suivre une catégorie. Vous êtes alerté dès <b>{(state.settings.alertPct || 80) + " %"}</b> d'un budget, et au dépassement.</p>
       <Field label="Budget total du foyer (€ / mois)" htmlFor="budTotal"><input className="inp" id="budTotal" inputMode="decimal" placeholder="facultatif" value={total} onChange={e => setTotal(e.target.value)} /></Field>
-      <div>{allCats().map(c => { const v = byCat[c.id] || 0, b = cb[c.id] || 0;
+      <div id="budRows">{allCats().map(c => { const v = byCat[c.id] || 0, b = cb[c.id] || 0;
         return <div className="erow" key={c.id}><span className="cn"><CatIco c={c} /> {c.name}</span><span className={"sp " + (b && v > b ? "over" : "")}>{fmt(v)} dépensés</span>
           <input className="inp r" inputMode="decimal" placeholder="—" aria-label={`Budget ${c.name} en euros`} value={vals[c.id]} onChange={e => setVals(x => ({...x, [c.id]:e.target.value}))} /></div>; })}</div>
       <p className="err" role="alert">{err}</p>

@@ -5,7 +5,16 @@ import { useStore, levelInfo } from "./lib/hooks.js";
 import { state, pref, bump, HIDE, setHide, todayStr, daysBetween, safeImg, MEMBER_COLORS, setCurrency, keyOf, curKey } from "./lib/core.js";
 import { SV, toastState, toast, offq, handleWriteError, onLoaded, onChanged } from "./data/store.js";
 import { VIEWS } from "./views/index.js";
-import { DialogHost } from "./ui/Dialog.jsx";
+import { DialogHost, openDialog, anyDialogOpen } from "./ui/Dialog.jsx";
+import { Lock, isLocked } from "./ui/Lock.jsx";
+import { openSettings, backup } from "./dialogs/Settings.jsx";
+import { openProfile, loadProgress } from "./dialogs/Profile.jsx";
+import { pdfYear } from "./dialogs/Exports.jsx";
+import { openWrap } from "./dialogs/Guide.jsx";
+import "./dialogs/Tools.jsx";
+import "./dialogs/Import.jsx";
+import { prevKey, nextKey } from "./lib/core.js";
+import { flushQueue } from "./data/store.js";
 import { generateRecurring } from "./lib/domain.js";
 import { openKindChooser, openQuick } from "./dialogs/Money.jsx";
 import { openGroup } from "./groups/GroupDialog.jsx";
@@ -24,6 +33,51 @@ onLoaded(() => {
   generateRecurring();
 });
 onChanged(() => { applyCurrency(); generateRecurring(); });
+onLoaded(() => { loadProgress(); });
+
+/* Actions disponibles partout (boutons d'en-tête, raccourcis, panneaux) */
+export const ACTIONS = {
+  add:openKindChooser, quick:openQuick, addGroup:() => openGroup(null),
+  search:() => openDialog("search"), keys:() => openDialog("keys"), export:() => openDialog("export"),
+  settings:openSettings, profile:openProfile, leader:() => openDialog("leader"),
+  backup:async () => { if (await backup()) toast("Sauvegarde téléchargée."); },
+  wrap:y => openWrap(y), pdfYear:async () => { try { await pdfYear(); } catch { toast("L'export PDF a échoué."); } },
+};
+
+/* Raccourcis clavier (hors champs de saisie, fenêtres ouvertes et écran verrouillé) */
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || !SV.hh || state.mode === "loading") return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (["input", "textarea", "select"].includes(tag) || e.target.isContentEditable || anyDialogOpen() || document.querySelector("dialog[open]") || isLocked()) return;
+  const k = e.key, A = ACTIONS;
+  if (k === "n" || k === "N") { e.preventDefault(); if (state.canWrite) A.add(); }
+  else if (k === "e" || k === "E") { e.preventDefault(); if (state.canWrite) A.quick(); }
+  else if (k === "/") { e.preventDefault(); A.search(); }
+  else if (k === "ArrowLeft") { state.month = prevKey(state.month); bump(); }
+  else if (k === "ArrowRight") { state.month = nextKey(state.month); bump(); }
+  else if (/^[1-6]$/.test(k)) { const t = visibleTabs()[+k - 1]; if (t) setTab(t.id); }
+  else if (k === "t" || k === "T") { state.month = keyOf(new Date()); bump(); }
+  else if (k === "p" || k === "P") A.profile();
+  else if (k === "l" || k === "L") A.leader();
+  else if (k === "?") A.keys();
+});
+
+/* Tirer vers le bas pour actualiser (mobile) */
+function usePullToRefresh(ref){
+  useEffect(() => {
+    const ind = ref.current; let y0 = null, dy = 0;
+    const start = e => { y0 = window.scrollY <= 0 && !document.querySelector("dialog[open]") ? e.touches[0].clientY : null; dy = 0; };
+    const move = e => { if (y0 == null) return; dy = e.touches[0].clientY - y0; if (dy > 0) { ind.style.transform = `translate(-50%, ${Math.min(dy, 110) - 60}px) rotate(${dy * 3}deg)`; ind.style.opacity = Math.min(1, dy / 80); } };
+    const end = async () => {
+      if (y0 == null) return; y0 = null;
+      if (dy > 85) { ind.classList.add("spin"); try { navigator.vibrate && pref.get("pc.haptic", "1") === "1" && navigator.vibrate(12); } catch {} try { await flushQueue(); } catch {} bump();
+        setTimeout(() => { ind.classList.remove("spin"); ind.style.opacity = 0; ind.style.transform = ""; toast("À jour"); }, 500); }
+      else { ind.style.opacity = 0; ind.style.transform = ""; }
+    };
+    addEventListener("touchstart", start, {passive:true}); addEventListener("touchmove", move, {passive:true}); addEventListener("touchend", end);
+    return () => { removeEventListener("touchstart", start); removeEventListener("touchmove", move); removeEventListener("touchend", end); };
+  }, []);
+}
 
 export const TABS = [
   {id:"budget", label:"Budget", icon:"wallet"},
@@ -88,7 +142,8 @@ export function Shell({ actions }){
     e.preventDefault(); const n = bs[(i + (e.key === "ArrowRight" ? 1 : -1) + bs.length) % bs.length]; n.focus(); n.click();
   };
   const View = VIEWS[state.tab];
-  const a = {add:openKindChooser, quick:openQuick, addGroup:() => openGroup(null), ...(actions || {})};
+  const a = {...ACTIONS, ...(actions || {})}, ptrRef = useRef(null);
+  usePullToRefresh(ptrRef);
   return (
     <div className="wrap">
       <header className="top">
@@ -136,6 +191,8 @@ export function Shell({ actions }){
       </>}
       <Toast />
       <DialogHost />
+      <div id="ptr" ref={ptrRef} aria-hidden="true"><Icon name="refresh-cw" /></div>
+      <Lock />
     </div>
   );
 }

@@ -398,7 +398,7 @@ function ExpenseList({ canEdit, ready }){
   return (
     <section className="panel" aria-label="Dépenses du mois">
       <div className="phead"><h2>{title}</h2><span className="muted">{count || ""}</span>
-        <button className="iconbtn" title="Affichage compact" aria-label="Affichage compact" aria-pressed={compact} onClick={() => { pref.set("pc.compact", compact ? "0" : "1"); bump(); }}><Icon name="list" /></button>
+        <button className="iconbtn" id="compactBtn" title="Affichage compact" aria-label="Affichage compact" aria-pressed={compact} onClick={() => { pref.set("pc.compact", compact ? "0" : "1"); bump(); }}><Icon name="list" /></button>
         {state.listMode !== "all" && <button className="btn sm ghost" disabled={!canEdit} onClick={() => { state.sel = !state.sel; state.selIds.clear(); bump(); }}>{state.sel ? "Terminer" : "Sélectionner"}</button>}</div>
       <div className="chips mb10" role="radiogroup" aria-label="Afficher">
         <button type="button" className="chip" aria-pressed={state.listMode === "expenses"} onClick={() => { state.listMode = "expenses"; bump(); }}>Dépenses</button>
