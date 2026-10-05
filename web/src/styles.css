@@ -621,3 +621,11 @@ img.av{object-fit:cover}
 .heat i.hid{visibility:hidden}
 .simlab{margin:0 0 6px}.simlab2{margin:10px 0 6px}.fw4{font-weight:400}.kpis.mt12{margin:12px 0 0}.cols.h110{height:110px}
 .items .tx > span.inl{display:inline}.actions.shopopts{margin:0 0 6px}.f1{flex:1}.err.mt12{margin-top:12px}
+.mb16{margin-bottom:16px}.minw0{min-width:0}
+.mb8{margin-bottom:8px}.my8{margin:8px 0}.aic{align-items:center}.wrapf{flex-wrap:wrap}
+.gthumb{width:38px;height:38px;border-radius:9px;object-fit:cover}
+.actions.giact{margin:10px 0 6px}
+.chips input.cbstatic{position:static;opacity:1;pointer-events:auto;accent-color:var(--accent)}
+.qrimg{display:block;margin:10px auto 0;width:150px;height:150px;border-radius:12px}
+.ink{color:var(--ink)}.bdesc{font-size:.7rem}.track.h8{height:8px}.op75{opacity:.75}.op65{opacity:.65}.mt4{margin:4px 0 0}
+.kidsub{margin:2px 0 8px}.projsub{margin:4px 0 8px}.projbud{font:400 .9rem var(--body)}

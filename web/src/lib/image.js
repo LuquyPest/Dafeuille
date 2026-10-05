@@ -19,3 +19,9 @@ export async function squareThumb(file, s = 96, q = .8){
   c.getContext("2d").drawImage(bmp, (s - w) / 2, (s - h) / 2, w, h);
   return c.toDataURL("image/jpeg", q);
 }
+/** Photo d'une dépense de groupe : ≈ 90 Ko max */
+export async function groupPhotoDataUrl(file){
+  const c = await drawScaled(file, 640); let q = .7, url = c.toDataURL("image/jpeg", q);
+  while (url.length > 90000 && q > 0.3) { q -= 0.12; url = c.toDataURL("image/jpeg", q); }
+  return url;
+}

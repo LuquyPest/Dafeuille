@@ -3,6 +3,7 @@ import { createElement as h } from "react";
 import Budget from "./Budget.jsx";
 import Analyse from "./Analyse.jsx";
 import Courses from "./Courses.jsx";
+import Projets from "./Projets.jsx";
 
 const Pending = label => () => h("section", {className:"panel pending-view"},
   h("h2", null, label),
@@ -12,7 +13,7 @@ export const VIEWS = {
   budget: Budget,
   analyse: Analyse,
   courses: Courses,
-  projets: Pending("Projets"),
+  projets: Projets,
   agenda: Pending("Agenda"),
   patrimoine: Pending("Patrimoine"),
 };

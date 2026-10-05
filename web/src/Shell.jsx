@@ -8,6 +8,12 @@ import { VIEWS } from "./views/index.js";
 import { DialogHost } from "./ui/Dialog.jsx";
 import { generateRecurring } from "./lib/domain.js";
 import { openKindChooser, openQuick } from "./dialogs/Money.jsx";
+import { openGroup } from "./groups/GroupDialog.jsx";
+import { checkNewBadges } from "./lib/badges.js";
+import { subscribe } from "./lib/core.js";
+
+/* Badges : vérifiés après chaque changement d'état (regroupés), comme render() → checkNewBadges() à l'origine */
+{ let t = null; subscribe(() => { clearTimeout(t); t = setTimeout(checkNewBadges, 800); }); }
 
 /* Après chaque chargement : devise, mois de départ (début de mois personnalisé), dépenses fixes à générer */
 let curCurrency = "EUR";
@@ -82,7 +88,7 @@ export function Shell({ actions }){
     e.preventDefault(); const n = bs[(i + (e.key === "ArrowRight" ? 1 : -1) + bs.length) % bs.length]; n.focus(); n.click();
   };
   const View = VIEWS[state.tab];
-  const a = {add:openKindChooser, quick:openQuick, ...(actions || {})};
+  const a = {add:openKindChooser, quick:openQuick, addGroup:() => openGroup(null), ...(actions || {})};
   return (
     <div className="wrap">
       <header className="top">
