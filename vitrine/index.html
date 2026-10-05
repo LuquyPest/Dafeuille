@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DAFeuille, le budget familial que vous hébergez vous-même</title>
+<meta name="description" content="DAFeuille réunit dépenses, factures, épargne et comptes de toute la famille, synchronisés automatiquement avec vos comptes bancaires. Auto-hébergé, code ouvert, vos données restent chez vous.">
+<link rel="icon" href="images/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<a class="skip" href="#principal">Aller au contenu</a>
+
+<header class="nav">
+  <div class="wrap navbar">
+    <a href="#" class="brand"><img src="images/icon.svg" alt="" width="32" height="32"><span>DAFeuille</span></a>
+    <nav class="navlinks" aria-label="Navigation principale">
+      <a href="#fonctionnalites">Fonctionnalités</a>
+      <a href="#securite">Sécurité</a>
+      <a href="#heberger">Auto-hébergement</a>
+    </nav>
+    <div class="navactions">
+      <a class="btn ghost" href="https://dafeuille.daryu.xyz/">Se connecter</a>
+      <a class="btn primary" href="https://dafeuille.daryu.xyz/">Créer un compte</a>
+    </div>
+  </div>
+</header>
+
+<main id="principal">
+
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-text reveal">
+        <h1>Toute la famille,<br>un seul budget.</h1>
+        <p class="lead">Dépenses, factures et épargne réunis, synchronisés avec vos comptes bancaires. Vos données restent sur votre serveur.</p>
+        <div class="cta-row">
+          <a class="btn primary lg" href="https://dafeuille.daryu.xyz/">Créer un compte</a>
+          <a class="btn ghost lg" href="https://github.com/LuquyPest/Dafeuille">Voir le code source</a>
+        </div>
+      </div>
+      <div class="hero-visual reveal">
+        <div class="browser-frame">
+          <div class="browser-bar"><span></span><span></span><span></span></div>
+          <img src="images/app-desktop.png" alt="Tableau de bord DAFeuille : budget du mois, soldes et dernières dépenses du foyer" loading="eager">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="fonctionnalites" class="bento-section">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>Un budget familial complet, pas une liste de dépenses.</h2>
+        <p>Factures, épargne, dettes, véhicules, inventaire du foyer : tout y passe, pas seulement les courses.</p>
+      </div>
+      <div class="bento">
+        <article class="bcard bcard-lg reveal">
+          <div class="bcard-text">
+            <h3>Synchronisation bancaire automatique</h3>
+            <p>Connectez vos comptes via l'open banking (Enable Banking). Les opérations arrivent seules, sans ressaisie, sans jamais transmettre vos identifiants bancaires à DAFeuille.</p>
+          </div>
+          <img class="bcard-img" src="images/app-donut.png" alt="Répartition des dépenses du mois par catégorie, calculée automatiquement" loading="lazy">
+        </article>
+        <article class="bcard reveal">
+          <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <h3>Groupes entre amis</h3>
+          <p>Partagez un lien, sans compte à créer. Vos amis ajoutent leurs dépenses, l'équilibrage se calcule seul.</p>
+        </article>
+        <article class="bcard reveal">
+          <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+          <h3>Plusieurs foyers, plusieurs rôles</h3>
+          <p>Propriétaire, contributeur ou lecteur : chacun voit et modifie seulement ce qu'il doit.</p>
+        </article>
+        <article class="bcard reveal">
+          <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg></div>
+          <h3>Factures, épargne, dettes</h3>
+          <p>Échéances à venir, objectifs d'épargne et remboursements suivis au même endroit.</p>
+        </article>
+        <article class="bcard bcard-wide reveal">
+          <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg></div>
+          <h3>Et tout ce qui ne se résume pas en euros</h3>
+          <p>Garde-manger, entretien de la voiture, garanties, ménage, papiers administratifs : le reste de la vie du foyer, pas seulement le compte en banque.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="split-section alt">
+    <div class="wrap split-grid">
+      <div class="split-visual reveal">
+        <div class="phone-frame">
+          <img src="images/app-mobile.png" alt="DAFeuille sur téléphone : budget du mois et répartition par catégorie" loading="lazy">
+        </div>
+      </div>
+      <div class="split-text reveal">
+        <h2>Dans votre poche,<br>même hors ligne.</h2>
+        <p class="lead">Installez DAFeuille comme une application sur votre téléphone. Elle fonctionne sans connexion et vous prévient par notification quand une facture approche.</p>
+        <ul class="checklist">
+          <li>Installable depuis le navigateur, sans magasin d'applications</li>
+          <li>Consultable hors ligne sur le dernier état connu</li>
+          <li>Notifications de factures, de budget dépassé, d'activité d'un proche</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="securite" class="security-section">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="eyebrow">Sécurité</p>
+        <h2>Vos finances ne sont pas un produit.</h2>
+        <p>Le code est public et vérifiable par n'importe qui. Rien de ce qui suit n'est une promesse marketing : c'est ce qui tourne réellement sur votre serveur.</p>
+      </div>
+      <div class="facts">
+        <div class="fact reveal">
+          <div class="icon-tile sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+          <div><h3>Cloisonnement par la base de données</h3><p>Chaque foyer est isolé par une politique PostgreSQL (Row Level Security), pas seulement par le code applicatif.</p></div>
+        </div>
+        <div class="fact reveal">
+          <div class="icon-tile sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <div><h3>Mots de passe hachés, jamais stockés</h3><p>Scrypt, avec les paramètres recommandés par l'OWASP. Une fuite de base ne donne aucun mot de passe en clair.</p></div>
+        </div>
+        <div class="fact reveal">
+          <div class="icon-tile sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg></div>
+          <div><h3>Double authentification et clés d'accès</h3><p>Application TOTP ou empreinte / visage de l'appareil (passkeys), au choix, en plus du mot de passe.</p></div>
+        </div>
+        <div class="fact reveal">
+          <div class="icon-tile sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg></div>
+          <div><h3>Vos identifiants bancaires ne transitent jamais ici</h3><p>La connexion à la banque se fait sur une page tenue par l'agréateur Enable Banking, jamais sur ce serveur.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="heberger" class="host-section">
+    <div class="wrap host-grid">
+      <div class="host-text reveal">
+        <h2>Installé chez vous,<br>pas chez un tiers.</h2>
+        <p class="lead">Un VPS, Docker, et c'est parti. Le code est ouvert : inspectez-le, modifiez-le, hébergez-le sur votre propre domaine.</p>
+        <div class="cta-row">
+          <a class="btn primary" href="https://github.com/LuquyPest/Dafeuille/blob/master/LISEZMOI.md">Voir le guide d'installation</a>
+          <a class="btn ghost" href="https://github.com/LuquyPest/Dafeuille">Code source</a>
+        </div>
+      </div>
+      <div class="host-code reveal">
+        <div class="code-frame">
+          <div class="browser-bar"><span></span><span></span><span></span></div>
+          <pre><code>cp .env.example .env
+nano .env
+
+docker compose up -d --build
+docker compose logs -f app</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final-cta">
+    <div class="wrap reveal">
+      <h2>Prêt à reprendre la main sur votre budget ?</h2>
+      <div class="cta-row center">
+        <a class="btn primary lg" href="https://dafeuille.daryu.xyz/">Créer un compte</a>
+        <a class="btn ghost lg" href="https://github.com/LuquyPest/Dafeuille">Voir le code source</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-grid">
+    <a href="#" class="brand"><img src="images/icon.svg" alt="" width="28" height="28"><span>DAFeuille</span></a>
+    <nav aria-label="Navigation du pied de page">
+      <a href="#fonctionnalites">Fonctionnalités</a>
+      <a href="#securite">Sécurité</a>
+      <a href="#heberger">Auto-hébergement</a>
+      <a href="https://github.com/LuquyPest/Dafeuille">GitHub</a>
+    </nav>
+    <p class="fine">DAFeuille. Projet personnel, code ouvert.</p>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
