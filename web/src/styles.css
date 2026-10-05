@@ -321,14 +321,14 @@ table.t tfoot td{font-weight:650;border-bottom:0}
 .linkbtn{border:0;background:none;color:var(--accent);font-weight:600;padding:6px 4px;display:inline-flex;align-items:center;gap:4px}
 
 /* ---------- Feuilles ---------- */
-dialog{border:0;padding:0;background:var(--surface);color:var(--ink);width:100%;max-width:560px;max-height:92vh;border-radius:26px 26px 0 0;margin:auto auto 0;box-shadow:var(--sh-lg);overscroll-behavior:contain}
+dialog{border:0;padding:0;background:var(--surface);color:var(--ink);width:100%;max-width:560px;max-height:92vh;max-height:92dvh;border-radius:26px 26px 0 0;margin:auto auto 0;box-shadow:var(--sh-lg);overscroll-behavior:contain}
 dialog.wide{max-width:780px}
 dialog::backdrop{background:rgba(5,10,20,.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
 dialog[open]{animation:up .22s ease-out}
 @keyframes up{from{transform:translateY(24px);opacity:.4}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){dialog[open]{animation:none}}
 @media (min-width:640px){dialog{border-radius:24px;margin:auto}}
-.sheet{padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));overflow:auto;max-height:92vh}
+.sheet{padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));overflow:auto;max-height:92vh;max-height:92dvh}
 @media (max-width:639px){.sheet::before{content:"";display:block;width:40px;height:4px;border-radius:9px;background:var(--line);margin:-8px auto 12px}}
 .sheet-head{display:flex;align-items:center;margin:-6px 0 14px;position:sticky;top:-20px;background:var(--surface);padding:10px 0 8px;z-index:2}
 .sheet-head h2{margin:0;margin-right:auto;font-size:1.15rem}
