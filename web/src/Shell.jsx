@@ -104,7 +104,7 @@ export function Avatar({ user }){
   return <span style={{background:idColor(user ? user.id : ""), width:"100%", height:"100%", display:"grid", placeItems:"center", color:"#fff", fontWeight:700}}>{((user && (user.name || user.email)) || "?")[0].toUpperCase()}</span>;
 }
 
-function Toast(){
+export function Toast(){
   useStore();
   return (
     <div className={"toast" + (toastState.msg ? " show" : "")} role="status" aria-live="polite">

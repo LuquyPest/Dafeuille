@@ -1,7 +1,8 @@
 /* Démarrage : session, liens reçus par e-mail, ouverture du foyer (ou de son instantané hors ligne). */
 import { useEffect, useState } from "react";
 import { AuthFlow, AuthCard, clearParams } from "./views/Auth.jsx";
-import { Shell } from "./Shell.jsx";
+import { Shell, Toast } from "./Shell.jsx";
+import { PublicGroup } from "./views/PublicGroup.jsx";
 import { api, SV, openHousehold, loadSnapshot, loadMeSnapshot, toast } from "./data/store.js";
 import { pref, state, bump } from "./lib/core.js";
 
@@ -17,7 +18,8 @@ export default function App(){
   };
 
   useEffect(() => { (async () => {
-    const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite");
+    const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite"), grp = params.get("groupe");
+    if (grp) return setPhase({kind:"public", token:grp});
     if (params.get("ok") === "desabonne") setTimeout(() => toast("C'est noté : vous ne recevrez plus le résumé hebdomadaire."), 1200);
     if (reset) return setPhase({kind:"auth", initial:{view:"reset", token:reset}});
     try {
@@ -42,6 +44,7 @@ export default function App(){
 
   useEffect(() => { if (phase.kind !== "app") { state.mode = "loading"; bump(); } }, [phase.kind]);
 
+  if (phase.kind === "public") return <><PublicGroup token={phase.token} /><Toast /></>;
   if (phase.kind === "auth") return <AuthFlow initial={phase.initial} onOpen={open} />;
   if (phase.kind === "app") return <Shell />;
   return <AuthCard><p className="sub" role="status">Chargement…</p></AuthCard>;
