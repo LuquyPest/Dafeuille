@@ -4,6 +4,7 @@ import Budget from "./Budget.jsx";
 import Analyse from "./Analyse.jsx";
 import Courses from "./Courses.jsx";
 import Projets from "./Projets.jsx";
+import Agenda from "./Agenda.jsx";
 
 const Pending = label => () => h("section", {className:"panel pending-view"},
   h("h2", null, label),
@@ -14,6 +15,6 @@ export const VIEWS = {
   analyse: Analyse,
   courses: Courses,
   projets: Projets,
-  agenda: Pending("Agenda"),
+  agenda: Agenda,
   patrimoine: Pending("Patrimoine"),
 };
