@@ -545,7 +545,10 @@ app.get("/api/me/export", requireUser, h(async (req, res) => {
     sessions,
   });
 }));
-function csvRow(cells) { return cells.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";"); }
+// Neutralise l'injection de formule CSV (Excel/Sheets) : une cellule commençant par =, +, -, @, tab ou CR
+// exécuterait une formule à l'ouverture si elle vient d'un libellé saisi par un autre membre du foyer.
+const csvCell = v => { const s = String(v ?? ""); return /^[=+\-@\t\r]/.test(s) ? "'" + s : s; };
+function csvRow(cells) { return cells.map(v => `"${csvCell(v).replace(/"/g, '""')}"`).join(";"); }
 app.get("/api/me/export.csv", requireUser, h(async (req, res) => {
   const u = req.user;
   const households = (await q(`SELECT h.id, h.name FROM memberships m JOIN households h ON h.id = m.household_id WHERE m.user_id = $1 ORDER BY m.created_at`, [u.id])).rows;
