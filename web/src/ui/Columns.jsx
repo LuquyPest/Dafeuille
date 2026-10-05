@@ -1,34 +1,44 @@
-/* Deux colonnes équilibrées sur grand écran (≥ 880 px) : chaque panneau, dans l'ordre, va dans la colonne
-   la plus courte (comme balanceColumns() de l'ancienne interface). Sur mobile : ordre d'origine.
-   Les panneaux sont enveloppés dans un élément display:contents pour pouvoir les mesurer sans changer la mise en page. */
+/* Deux colonnes équilibrées sur grand écran (≥ 880 px), comme balanceColumns() de l'ancienne interface :
+   chaque panneau, dans l'ordre d'origine, va dans la colonne la plus courte ; un panneau qui reste dans sa colonne
+   garde sa place, un panneau déplacé arrive en bas de sa nouvelle colonne. Sur mobile : disposition d'origine.
+   Chaque panneau est enveloppé dans un élément display:contents pour être mesuré sans changer la mise en page. */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const wide = () => window.innerWidth >= 880;
 
 export function Columns({ left, right, className = "grid" }){
-  const items = left.concat(right).filter(Boolean), ref = useRef(null);
-  const [isWide, setWide] = useState(wide), [assign, setAssign] = useState(null);
+  const L = left.filter(Boolean), R = right.filter(Boolean), byKey = {}, ref = useRef(null);
+  L.concat(R).forEach(it => byKey[it.key] = it);
+  const order = L.concat(R).map(it => it.key);               // ordre d'origine (rang de chaque panneau)
+  const [isWide, setWide] = useState(wide), [arr, setArr] = useState(null), own = useRef(false);
   useEffect(() => { const h = () => setWide(wide()); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []);
+
+  // Disposition courante : la précédente, complétée par les panneaux apparus depuis (à leur place d'origine)
+  const base = arr || [L.map(it => it.key), R.map(it => it.key)];
+  const cur = base.map(col => col.filter(k => byKey[k]));
+  L.forEach(it => { if (!cur[0].includes(it.key) && !cur[1].includes(it.key)) cur[0].push(it.key); });
+  R.forEach(it => { if (!cur[0].includes(it.key) && !cur[1].includes(it.key)) cur[1].push(it.key); });
+
   useLayoutEffect(() => {
+    if (own.current) { own.current = false; return; }        // rendu provoqué par notre propre rééquilibrage : pas de nouvelle passe
     if (!isWide || !ref.current) return;
-    if (ref.current.contains(document.activeElement) && document.activeElement !== document.body && assign) return;   // pas de saut pendant une saisie
+    if (ref.current.contains(document.activeElement)) return;   // pas de saut sous le doigt ou pendant une saisie
     const hs = {};
     ref.current.querySelectorAll(":scope > .col > .cslot").forEach(s => { const c = s.firstElementChild; hs[s.dataset.k] = c && !c.hidden ? c.offsetHeight : 0; });
-    let a = 0, b = 0; const next = {};
-    items.forEach(it => { const h = hs[it.key] || 0; if (!h) { next[it.key] = assign?.[it.key] ?? 0; return; } if (a <= b) { next[it.key] = 0; a += h; } else { next[it.key] = 1; b += h; } });
-    if (!assign || items.some(it => assign[it.key] !== next[it.key])) setAssign(next);
+    const next = cur.map(col => col.slice()), where = k => next[0].includes(k) ? 0 : 1;
+    let a = 0, b = 0;
+    order.filter(k => hs[k]).forEach(k => {
+      const t = a <= b ? 0 : 1;
+      if (where(k) !== t) { next[1 - t] = next[1 - t].filter(x => x !== k); next[t].push(k); }
+      if (t === 0) a += hs[k]; else b += hs[k];
+    });
+    if (next.some((col, i) => col.join("|") !== cur[i].join("|"))) { own.current = true; setArr(next); }
   });
-  const slot = it => <div className="cslot" data-k={it.key} key={it.key}>{it}</div>;
-  if (!isWide || !assign) return (
-    <div className={className} ref={ref}>
-      <div className="col">{left.filter(Boolean).map(slot)}</div>
-      <div className="col">{right.filter(Boolean).map(slot)}</div>
-    </div>
-  );
+
+  const cols = isWide ? cur : [L.map(it => it.key), R.map(it => it.key)];
   return (
     <div className={className} ref={ref}>
-      <div className="col">{items.filter(it => (assign[it.key] ?? 0) === 0).map(slot)}</div>
-      <div className="col">{items.filter(it => assign[it.key] === 1).map(slot)}</div>
+      {cols.map((col, i) => <div className="col" key={i}>{col.map(k => <div className="cslot" data-k={k} key={k}>{byKey[k]}</div>)}</div>)}
     </div>
   );
 }
