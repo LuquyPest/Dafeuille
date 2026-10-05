@@ -1043,35 +1043,34 @@ async function startListener() {
 }
 
 /* ---------------------------- Connexion bancaire (open banking) ----------------------------
-   GoCardless Bank Account Data (ex-Nordigen) : agrégateur conforme DSP2, gratuit jusqu'à 50
-   connexions actives par mois. Doc : https://developer.gocardless.com/bank-account-data/overview
+   Enable Banking : agrégateur conforme DSP2, gratuit en usage personnel via son mode "Restricted
+   Production" (comptes liés par vous-même, sans contrat ni KYB — voir LISEZMOI.md pour l'activer).
+   Doc : https://enablebanking.com/docs/api/
    Les identifiants de connexion à la banque elle-même ne transitent jamais par ce serveur : la
-   personne s'authentifie sur une page hébergée par GoCardless (ou directement sa banque), qui
+   personne s'authentifie sur une page hébergée par Enable Banking (ou directement sa banque), qui
    renvoie ensuite le navigateur vers /api/h/:hid/bank/callback. */
-CFG.gocardless = env.GC_SECRET_ID && env.GC_SECRET_KEY ? { secretId: env.GC_SECRET_ID, secretKey: env.GC_SECRET_KEY } : null;
-const GC_BASE = env.GC_API_BASE || "https://bankaccountdata.gocardless.com/api/v2"; // débrayable pour les tests
-let gcTokenCache = null;
-async function gcToken() {
-  if (gcTokenCache && gcTokenCache.expiresAt > Date.now() + 60e3) return gcTokenCache.access;
-  const r = await fetch(`${GC_BASE}/token/new/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret_id: CFG.gocardless.secretId, secret_key: CFG.gocardless.secretKey }) });
-  const d = await r.json().catch(() => null);
-  if (!r.ok || !d?.access) throw new Error((d && (d.detail || d.summary)) || "Authentification GoCardless refusée.");
-  gcTokenCache = { access: d.access, expiresAt: Date.now() + (d.access_expires - 60) * 1000 };
-  return gcTokenCache.access;
+CFG.enablebanking = env.EB_APPLICATION_ID && env.EB_PRIVATE_KEY ? { appId: env.EB_APPLICATION_ID, privateKey: env.EB_PRIVATE_KEY.replace(/\\n/g, "\n") } : null;
+const EB_BASE = env.EB_API_BASE || "https://api.enablebanking.com"; // débrayable pour les tests
+// Jeton d'application : un JWT RS256 signé à la demande (pas d'échange préalable, pas de cache à invalider).
+function ebAuthHeader() {
+  const b64url = o => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const now = Math.floor(Date.now() / 1000);
+  const data = `${b64url({ alg: "RS256", kid: CFG.enablebanking.appId, typ: "JWT" })}.${b64url({ iss: "enablebanking.com", aud: "api.enablebanking.com", iat: now, exp: now + 3600 })}`;
+  return `Bearer ${data}.${crypto.sign("RSA-SHA256", Buffer.from(data), CFG.enablebanking.privateKey).toString("base64url")}`;
 }
-async function gcFetch(path, opts = {}) {
-  if (!CFG.gocardless) throw new HttpError(503, "unavailable", "Connexion bancaire non configurée sur ce serveur.");
-  const token = await gcToken();
-  const r = await fetch(`${GC_BASE}${path}`, { ...opts, headers: { ...(opts.headers || {}), "Content-Type": "application/json", Authorization: `Bearer ${token}` } });
+async function ebFetch(path, opts = {}) {
+  if (!CFG.enablebanking) throw new HttpError(503, "unavailable", "Connexion bancaire non configurée sur ce serveur.");
+  const r = await fetch(`${EB_BASE}${path}`, { ...opts, headers: { ...(opts.headers || {}), "Content-Type": "application/json", Authorization: ebAuthHeader() } });
   const d = await r.json().catch(() => null);
-  if (!r.ok) throw new HttpError(r.status >= 500 ? 502 : 400, "bank_error", (d && (d.detail || d.summary)) || "La banque n'a pas répondu correctement.");
+  if (!r.ok) throw new HttpError(r.status >= 500 ? 502 : 400, "bank_error", (d && (d.error_description || d.message)) || "La banque n'a pas répondu correctement.");
   return d;
 }
-let gcInstitutionsCache = null;
-async function gcInstitutions() {
-  if (gcInstitutionsCache && Date.now() - gcInstitutionsCache.at < 3600e3) return gcInstitutionsCache.list;
-  const list = await gcFetch("/institutions/?country=fr");
-  gcInstitutionsCache = { at: Date.now(), list };
+// id synthétique "pays|nom" : Enable Banking identifie une banque par cette paire, pas par un id opaque.
+let ebInstitutionsCache = null;
+async function ebInstitutions() {
+  if (ebInstitutionsCache && Date.now() - ebInstitutionsCache.at < 3600e3) return ebInstitutionsCache.list;
+  const list = (await ebFetch("/aspsps?country=FR")).aspsps.map(a => ({ id: `${a.country}|${a.name}`, name: a.name, logo: a.logo || null, country: a.country, maxValidity: a.maximum_consent_validity }));
+  ebInstitutionsCache = { at: Date.now(), list };
   return list;
 }
 
@@ -1094,26 +1093,29 @@ async function syncBankLink(link) {
   const existing = new Set((await asUser(link.created_by, c => c.query(
     "SELECT data->>'importId' AS i FROM docs WHERE household_id = $1 AND coll IN ('expenses','revenus') AND data->>'importId' IS NOT NULL", [link.household_id]
   ))).rows.map(r => r.i));
-  let tx;
-  try { tx = await gcFetch(`/accounts/${encodeURIComponent(link.gc_account_id)}/transactions/`); }
-  catch (e) { await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [link.id, e.message]); throw e; }
-  const booked = (tx.transactions && tx.transactions.booked) || [];
-  let n = 0;
-  for (const t of booked) {
-    if (!t.transactionAmount || t.transactionAmount.currency !== "EUR") continue;   // conversion hors périmètre pour l'instant
-    const cents = Math.round(parseFloat(t.transactionAmount.amount) * 100);
-    if (!Number.isFinite(cents) || !cents) continue;
-    const raw = t.transactionId || t.internalTransactionId || `${t.bookingDate}:${t.transactionAmount.amount}:${(t.remittanceInformationUnstructured || "").slice(0, 40)}`;
-    const importId = "gc:" + link.id + ":" + sha(raw).slice(0, 24);
-    if (existing.has(importId)) continue;
-    const label = (t.remittanceInformationUnstructured || t.creditorName || t.debtorName || "Opération bancaire").replace(/\s+/g, " ").trim().slice(0, 80) || "Opération bancaire";
-    const date = t.bookingDate || t.valueDate || new Date().toISOString().slice(0, 10);
-    if (cents < 0) {
-      await writeImportedDoc(link.household_id, link.created_by, "expenses", { amount: -cents, label, cat: "autre", payer: link.member_id, split: "all", shares: null, accountId: link.app_account_id || null, date, by: null, imported: true, importId, createdAt: Date.now() });
-    } else {
-      await writeImportedDoc(link.household_id, link.created_by, "revenus", { amount: cents, label, who: link.member_id, accountId: link.app_account_id || null, date, imported: true, importId, createdAt: Date.now() });
+  const dateFrom = link.last_sync_at ? new Date(link.last_sync_at).toISOString().slice(0, 10) : new Date(Date.now() - 90 * 86400e3).toISOString().slice(0, 10);
+  let n = 0, key = null;
+  for (let page = 0; page < 20; page++) {   // garde-fou : 20 pages de relevé suffisent largement pour un usage familial
+    let tx;
+    try { tx = await ebFetch(`/accounts/${encodeURIComponent(link.gc_account_id)}/transactions?date_from=${dateFrom}${key ? `&continuation_key=${encodeURIComponent(key)}` : ""}`); }
+    catch (e) { await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [link.id, e.message]); throw e; }
+    for (const t of tx.transactions || []) {
+      if (!t.transaction_amount || t.transaction_amount.currency !== "EUR") continue;   // conversion hors périmètre pour l'instant
+      const cents = Math.round(parseFloat(t.transaction_amount.amount) * 100);
+      if (!Number.isFinite(cents) || !cents) continue;
+      const raw = t.entry_reference || `${t.booking_date}:${t.transaction_amount.amount}:${(t.remittance_information || []).join(" ").slice(0, 40)}`;
+      const importId = "eb:" + link.id + ":" + sha(raw).slice(0, 24);
+      if (existing.has(importId)) continue;
+      const label = ((t.remittance_information || []).join(" ") || t.creditor?.name || t.debtor?.name || "Opération bancaire").replace(/\s+/g, " ").trim().slice(0, 80) || "Opération bancaire";
+      const date = t.booking_date || t.value_date || new Date().toISOString().slice(0, 10);
+      if (t.credit_debit_indicator === "DBIT") {
+        await writeImportedDoc(link.household_id, link.created_by, "expenses", { amount: cents, label, cat: "autre", payer: link.member_id, split: "all", shares: null, accountId: link.app_account_id || null, date, by: null, imported: true, importId, createdAt: Date.now() });
+      } else {
+        await writeImportedDoc(link.household_id, link.created_by, "revenus", { amount: cents, label, who: link.member_id, accountId: link.app_account_id || null, date, imported: true, importId, createdAt: Date.now() });
+      }
+      existing.add(importId); n++;
     }
-    existing.add(importId); n++;
+    key = tx.continuation_key; if (!key) break;
   }
   await q("UPDATE bank_links SET last_sync_at = now(), status = 'linked', error = NULL WHERE id = $1", [link.id]);
   return n;
@@ -1124,54 +1126,56 @@ async function syncAllBankLinks() {
   for (const link of rows) { try { total += await syncBankLink(link); } catch (e) { logJson("error", { msg: "syncBankLink", linkId: link.id, message: e.message }); } }
   return total;
 }
-if (CFG.gocardless) {
+if (CFG.enablebanking) {
+  // Beaucoup de banques limitent à 4 relevés par jour hors présence de l'utilisateur : 3x/jour, marge de sécurité.
   setTimeout(() => syncAllBankLinks().catch(e => logJson("error", { msg: "syncAllBankLinks", message: e.message })), 10 * 60e3).unref();
-  setInterval(() => syncAllBankLinks().catch(e => logJson("error", { msg: "syncAllBankLinks", message: e.message })), 6 * 3600e3).unref();
+  setInterval(() => syncAllBankLinks().catch(e => logJson("error", { msg: "syncAllBankLinks", message: e.message })), 8 * 3600e3).unref();
 }
 
-const BANK_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 app.get("/api/h/:hid/bank/institutions", requireUser, member, h(async (req, res) => {
-  res.json({ institutions: (await gcInstitutions()).map(i => ({ id: i.id, name: i.name, logo: i.logo || null })) });
+  res.json({ institutions: (await ebInstitutions()).map(i => ({ id: i.id, name: i.name, logo: i.logo })) });
 }));
 app.get("/api/h/:hid/bank/links", requireUser, member, h(async (req, res) => {
   const rows = (await q("SELECT id, institution_name, account_name, member_id, app_account_id, status, error, last_sync_at, consent_expires_at FROM bank_links WHERE household_id = $1 ORDER BY created_at", [req.params.hid])).rows;
-  res.json({ configured: !!CFG.gocardless, links: rows });
+  res.json({ configured: !!CFG.enablebanking, links: rows });
 }));
 app.post("/api/h/:hid/bank/connect", requireUser, member, h(async (req, res) => {
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
   limit("bank-connect:" + req.user.id, 10, 3600e3);
   const institutionId = String(req.body.institutionId || ""), memberId = String(req.body.memberId || "").slice(0, 64), appAccountId = req.body.appAccountId ? String(req.body.appAccountId).slice(0, 200) : null;
-  if (!BANK_ID_RE.test(institutionId)) throw bad("bad_institution", "Banque invalide.");
   if (!memberId) throw bad("bad_member", "Choisissez à qui attribuer les opérations.");
-  const inst = (await gcInstitutions()).find(i => i.id === institutionId);
+  const inst = (await ebInstitutions()).find(i => i.id === institutionId);
   if (!inst) throw bad("bad_institution", "Banque introuvable.");
   const n = (await q("SELECT count(*)::int AS n FROM bank_links WHERE household_id = $1 AND status <> 'revoked'", [req.params.hid])).rows[0].n;
   if (n >= 10) throw bad("too_many", "Limite de 10 connexions bancaires par foyer atteinte.");
-  const id = uuid();
-  const requisition = await gcFetch("/requisitions/", { method: "POST", body: JSON.stringify({ redirect: `${CFG.appUrl}/api/h/${req.params.hid}/bank/callback?link=${id}`, institution_id: institutionId, reference: id, user_language: "FR" }) });
-  await q(`INSERT INTO bank_links (id, household_id, created_by, institution_id, institution_name, requisition_id, member_id, app_account_id, status)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending')`, [id, req.params.hid, req.user.id, institutionId, inst.name, requisition.id, memberId, appAccountId]);
-  res.json({ redirectUrl: requisition.link });
+  const id = uuid(), validUntil = new Date(Date.now() + Math.min(90 * 86400, inst.maxValidity || 90 * 86400) * 1000).toISOString();
+  const auth = await ebFetch("/auth", { method: "POST", body: JSON.stringify({
+    access: { valid_until: validUntil }, aspsp: { name: inst.name, country: inst.country }, state: id,
+    redirect_url: `${CFG.appUrl}/api/h/${req.params.hid}/bank/callback`, psu_type: "personal",
+  }) });
+  await q(`INSERT INTO bank_links (id, household_id, created_by, institution_id, institution_name, member_id, app_account_id, status)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,'pending')`, [id, req.params.hid, req.user.id, institutionId, inst.name, memberId, appAccountId]);
+  res.json({ redirectUrl: auth.url });
 }));
-// GoCardless redirige ici le navigateur après authentification bancaire : pas de session requise,
-// la sécurité tient à l'identifiant de lien (UUID imprévisible) rattaché à une demande déjà créée côté serveur —
-// même modèle que les liens de connexion par e-mail ou d'invitation déjà utilisés dans l'app.
+// Enable Banking redirige ici le navigateur après authentification bancaire : pas de session requise,
+// la sécurité tient à l'identifiant de lien (UUID imprévisible, notre "state") rattaché à une demande déjà
+// créée côté serveur — même modèle que les liens de connexion par e-mail ou d'invitation déjà utilisés dans l'app.
 app.get("/api/h/:hid/bank/callback", h(async (req, res) => {
-  const linkId = String(req.query.link || "");
+  const linkId = String(req.query.state || ""), code = String(req.query.code || "");
   const back = (ok, msg) => res.redirect(`${CFG.appUrl}/?h=${encodeURIComponent(req.params.hid)}&bank=${ok ? "ok" : "ko"}${msg ? "&bankmsg=" + encodeURIComponent(msg) : ""}`);
   try {
     const link = (await q("SELECT * FROM bank_links WHERE id = $1 AND household_id = $2", [linkId, req.params.hid])).rows[0];
     if (!link) return back(false, "Lien introuvable.");
-    const requisition = await gcFetch(`/requisitions/${encodeURIComponent(link.requisition_id)}/`);
-    if (requisition.status !== "LN" || !requisition.accounts || !requisition.accounts.length) {
-      await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [linkId, "Connexion refusée ou incomplète."]);
-      return back(false, "La connexion à la banque a été annulée ou a échoué.");
+    if (!code) { await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [linkId, "Connexion annulée."]); return back(false, "La connexion à la banque a été annulée."); }
+    const session = await ebFetch("/sessions", { method: "POST", body: JSON.stringify({ code }) });
+    if (!session.accounts || !session.accounts.length) {
+      await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [linkId, "Aucun compte accessible."]);
+      return back(false, "Aucun compte accessible n'a été trouvé pour cette banque.");
     }
-    const accountId = requisition.accounts[0];
-    const details = await gcFetch(`/accounts/${encodeURIComponent(accountId)}/details/`).catch(() => null);
-    const accountName = (details && details.account && (details.account.name || details.account.iban)) || link.institution_name;
-    await q("UPDATE bank_links SET status = 'linked', gc_account_id = $2, account_name = $3, consent_expires_at = now() + interval '90 days' WHERE id = $1", [linkId, accountId, accountName]);
-    syncBankLink({ ...link, gc_account_id: accountId }).catch(e => logJson("error", { msg: "syncBankLink", message: e.message }));
+    const account = session.accounts[0], accountName = account.name || account.product || link.institution_name;
+    await q("UPDATE bank_links SET status = 'linked', requisition_id = $2, gc_account_id = $3, account_name = $4, consent_expires_at = $5 WHERE id = $1",
+      [linkId, session.session_id, account.uid, accountName, session.access.valid_until]);
+    syncBankLink({ ...link, gc_account_id: account.uid }).catch(e => logJson("error", { msg: "syncBankLink", message: e.message }));
     back(true);
   } catch (e) { logJson("error", { msg: "bank callback", message: e.message }); back(false, "Une erreur est survenue."); }
 }));
@@ -1186,7 +1190,7 @@ app.delete("/api/h/:hid/bank/:linkId", requireUser, member, h(async (req, res) =
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
   const link = (await q("SELECT * FROM bank_links WHERE id = $1 AND household_id = $2", [req.params.linkId, req.params.hid])).rows[0];
   if (!link) throw new HttpError(404, "not_found", "Connexion introuvable.");
-  if (link.requisition_id) await gcFetch(`/requisitions/${encodeURIComponent(link.requisition_id)}/`, { method: "DELETE" }).catch(() => {});
+  if (link.requisition_id) await ebFetch(`/sessions/${encodeURIComponent(link.requisition_id)}`, { method: "DELETE" }).catch(() => {});
   await q("DELETE FROM bank_links WHERE id = $1", [req.params.linkId]);
   res.json({ ok: true });
 }));

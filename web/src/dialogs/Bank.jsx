@@ -1,4 +1,4 @@
-/* Connexion bancaire automatique (open banking, GoCardless Bank Account Data) : relier un compte
+/* Connexion bancaire automatique (open banking, Enable Banking) : relier un compte
    bancaire une fois, puis les dépenses et revenus se remplissent tout seuls (synchronisation
    automatique côté serveur, et bouton « Synchroniser maintenant » ici). */
 import { useEffect, useState } from "react";
@@ -26,7 +26,7 @@ function ConnectForm({ onDone }){
     catch (e) { setErr(e.message); setBusy(false); }
   };
   return <div>
-    <p className="muted small mt0">Vous serez redirigé vers votre banque (ou une page sécurisée GoCardless) pour autoriser l'accès, lecture seule, révocable à tout moment.</p>
+    <p className="muted small mt0">Vous serez redirigé vers votre banque (ou une page sécurisée Enable Banking) pour autoriser l'accès, lecture seule, révocable à tout moment.</p>
     <Field label="Votre banque" htmlFor="bkSearch">
       <input className="inp" id="bkSearch" placeholder="Rechercher…" value={q} onChange={e => setQ(e.target.value)} />
       {err && !list ? <p className="err">{err}</p> : !list ? <p className="muted small mt8">Chargement…</p> : (
@@ -51,7 +51,7 @@ function BankLinksDialog({ onClose }){
   const sync = async id => { setBusyId(id); try { const r = await api("POST", `${hb()}/bank/${id}/sync`, {}); toast(r.imported ? `${r.imported} opération${r.imported > 1 ? "s" : ""} importée${r.imported > 1 ? "s" : ""}` : "Déjà à jour"); await load(); } catch (e) { handleWriteError(e); } finally { setBusyId(null); } };
   const remove = async id => { if (!confirm("Déconnecter cette banque ? Les opérations déjà importées restent enregistrées.")) return; try { await api("DELETE", `${hb()}/bank/${id}`); toast("Connexion supprimée"); await load(); } catch (e) { handleWriteError(e); } };
   return <Dialog title="Connexion bancaire" onClose={onClose} closeLabel="Fermer" form={false}>
-    {!configured ? <p className="muted small mt0">La connexion bancaire automatique n'est pas configurée sur ce serveur (clés GoCardless absentes de la configuration).</p> : adding ? <ConnectForm onDone={() => { setAdding(false); load(); }} /> : <div>
+    {!configured ? <p className="muted small mt0">La connexion bancaire automatique n'est pas configurée sur ce serveur (clé Enable Banking absente de la configuration).</p> : adding ? <ConnectForm onDone={() => { setAdding(false); load(); }} /> : <div>
       {!links ? <p className="muted small">Chargement…</p> : !links.length ? <p className="muted small mt0">Aucune banque connectée. Les dépenses et revenus se rempliront automatiquement une fois une banque reliée.</p>
         : <ul className="items">{links.map(l => <li key={l.id}><span className="ic"><Icon name={l.status === "linked" ? "landmark" : l.status === "error" ? "triangle-alert" : "clock"} /></span>
           <span className="tx">{l.institution_name}{l.account_name ? " · " + l.account_name : ""}<span>{STATUS_FR[l.status] || l.status}{l.last_sync_at ? " · synchronisé " + fmtDay(l.last_sync_at.slice(0, 10)) : ""}{l.error ? " · " + l.error : ""}</span></span>

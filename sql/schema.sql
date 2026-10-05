@@ -179,17 +179,18 @@ CREATE TABLE IF NOT EXISTS push_sent (
   at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Connexion bancaire automatique (open banking, GoCardless Bank Account Data) : un lien par compte
--- bancaire relié. Les jetons eux-mêmes ne sont jamais stockés ici (voir asUser/gcToken côté serveur) :
--- seul l'identifiant de la demande d'accès ("requisition") l'est, pour interroger GoCardless à la demande.
+-- Connexion bancaire automatique (open banking, Enable Banking) : un lien par compte bancaire relié.
+-- Le jeton d'application (clé privée) n'est jamais stocké ici (voir ebAuthHeader côté serveur, signé à
+-- la demande) ; requisition_id/gc_account_id gardent leur nom historique mais stockent désormais
+-- l'identifiant de session et l'identifiant de compte Enable Banking, connus une fois le lien établi.
 CREATE TABLE IF NOT EXISTS bank_links (
   id                 text PRIMARY KEY,
   household_id       text NOT NULL REFERENCES households(id) ON DELETE CASCADE,
   created_by         text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   institution_id     text NOT NULL,
   institution_name   text NOT NULL,
-  requisition_id     text NOT NULL,
-  gc_account_id      text,                      -- identifiant du compte chez GoCardless, connu une fois le lien établi
+  requisition_id     text,                      -- session_id Enable Banking, connu une fois le lien établi
+  gc_account_id      text,                      -- uid du compte chez Enable Banking, connu une fois le lien établi
   member_id          text NOT NULL,              -- membre du foyer (DEFAULT_SETTINGS.members[].id) à qui attribuer les opérations
   app_account_id     text,                       -- compte DAFeuille (coll. "comptes") sur lequel pointer les opérations importées
   account_name       text,
@@ -200,3 +201,4 @@ CREATE TABLE IF NOT EXISTS bank_links (
   created_at         timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS bank_links_household_idx ON bank_links (household_id);
+ALTER TABLE bank_links ALTER COLUMN requisition_id DROP NOT NULL;

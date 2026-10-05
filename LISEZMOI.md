@@ -80,24 +80,32 @@ npm run build:web    # construit web-dist/
 ## Connexion bancaire automatique (facultatif)
 
 Les dépenses et revenus peuvent se remplir tout seuls depuis un compte bancaire réel, via
-[GoCardless Bank Account Data](https://bankaccountdata.gocardless.com/) (ex-Nordigen), un agrégateur
-conforme DSP2, gratuit jusqu'à 50 connexions actives par mois (largement suffisant pour un usage familial).
+[Enable Banking](https://enablebanking.com/), un agrégateur conforme DSP2. Son mode **Restricted
+Production** est gratuit et sans contrat pour un usage personnel (comptes que vous liez vous-même),
+tant que l'app n'est pas rendue publique à d'autres personnes — exactement notre cas.
 
-1. Créez un compte sur [bankaccountdata.gocardless.com](https://bankaccountdata.gocardless.com/).
-2. Récupérez une paire `secret_id` / `secret_key` (section *Developers* du tableau de bord).
-3. Ajoutez dans `.env` :
+1. Créez un compte sur le [Control Panel Enable Banking](https://enablebanking.com/cp/).
+2. Onglet **API applications** → *Add a new application*. Environnement **Production** (pas Sandbox),
+   laissez « Generate in the browser and export private key » coché, mettez l'URL de redirection
+   `https://votre-domaine/api/h/PLACEHOLDER/bank/callback` (le `PLACEHOLDER` n'a pas d'importance, seul
+   le domaine compte). Validez : une clé privée `.pem` se télécharge, et l'**Application ID** s'affiche.
+3. L'application démarre *Inactive*. Cliquez **Activate by linking accounts** et reliez-y un premier
+   compte bancaire à vous (cette unique étape passe par le site d'Enable Banking, pas par DAFeuille) :
+   cela active le mode Restricted Production, gratuit, sans KYB ni contrat.
+4. Ajoutez dans `.env` (le contenu du `.pem` sur une seule ligne, `\n` à la place des retours à la ligne) :
    ```
-   GC_SECRET_ID=votre_secret_id
-   GC_SECRET_KEY=votre_secret_key
+   EB_APPLICATION_ID=votre_application_id
+   EB_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n"
    ```
-4. `docker compose up -d` pour appliquer.
+5. `docker compose up -d` pour appliquer.
 
-Dans l'app : Patrimoine › Comptes › **Connexion bancaire**. La personne choisit sa banque, s'authentifie
-sur une page sécurisée (jamais sur ce serveur), et revient automatiquement. Les opérations des 90 derniers
-jours sont importées une première fois, puis une synchronisation automatique tourne toutes les 6 heures
-(bouton « Synchroniser » pour forcer une mise à jour). La connexion est en lecture seule et révocable à
-tout moment depuis cette même fenêtre. Sans ces deux clés, le bouton reste présent mais indique que la
-fonction n'est pas configurée sur ce serveur.
+Dans l'app : Patrimoine › Comptes › **Connexion bancaire**. Pour chaque compte (y compris celui déjà lié
+à l'étape 3), la personne choisit sa banque, s'authentifie sur une page sécurisée (jamais sur ce serveur),
+et revient automatiquement. Les opérations des 90 derniers jours sont importées une première fois, puis
+une synchronisation automatique tourne 3 fois par jour (bouton « Synchroniser » pour forcer une mise à
+jour) — beaucoup de banques limitent à 4 relevés par jour hors présence de l'utilisateur. La connexion
+est en lecture seule et révocable à tout moment depuis cette même fenêtre. Sans ces deux clés, le bouton
+reste présent mais indique que la fonction n'est pas configurée sur ce serveur.
 
 ## Sauvegardes
 
