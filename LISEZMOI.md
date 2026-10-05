@@ -77,6 +77,28 @@ npm run dev:web      # serveur de développement (l'API est relayée vers la pro
 npm run build:web    # construit web-dist/
 ```
 
+## Connexion bancaire automatique (facultatif)
+
+Les dépenses et revenus peuvent se remplir tout seuls depuis un compte bancaire réel, via
+[GoCardless Bank Account Data](https://bankaccountdata.gocardless.com/) (ex-Nordigen), un agrégateur
+conforme DSP2, gratuit jusqu'à 50 connexions actives par mois (largement suffisant pour un usage familial).
+
+1. Créez un compte sur [bankaccountdata.gocardless.com](https://bankaccountdata.gocardless.com/).
+2. Récupérez une paire `secret_id` / `secret_key` (section *Developers* du tableau de bord).
+3. Ajoutez dans `.env` :
+   ```
+   GC_SECRET_ID=votre_secret_id
+   GC_SECRET_KEY=votre_secret_key
+   ```
+4. `docker compose up -d` pour appliquer.
+
+Dans l'app : Patrimoine › Comptes › **Connexion bancaire**. La personne choisit sa banque, s'authentifie
+sur une page sécurisée (jamais sur ce serveur), et revient automatiquement. Les opérations des 90 derniers
+jours sont importées une première fois, puis une synchronisation automatique tourne toutes les 6 heures
+(bouton « Synchroniser » pour forcer une mise à jour). La connexion est en lecture seule et révocable à
+tout moment depuis cette même fenêtre. Sans ces deux clés, le bouton reste présent mais indique que la
+fonction n'est pas configurée sur ce serveur.
+
 ## Sauvegardes
 
 ```bash

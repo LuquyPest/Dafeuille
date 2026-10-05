@@ -21,6 +21,9 @@ export default function App(){
     const e = params.get("e"), reset = params.get("reset"), inv = params.get("invite"), grp = params.get("groupe");
     if (grp) return setPhase({kind:"public", token:grp});
     if (params.get("ok") === "desabonne") setTimeout(() => toast("C'est noté : vous ne recevrez plus le résumé hebdomadaire."), 1200);
+    const bank = params.get("bank");
+    if (bank === "ok") setTimeout(() => toast("Banque connectée : importation des opérations en cours…"), 1200);
+    else if (bank === "ko") setTimeout(() => toast(params.get("bankmsg") || "La connexion à la banque a échoué."), 1200);
     if (reset) return setPhase({kind:"auth", initial:{view:"reset", token:reset}});
     try {
       const r = await api("GET", "/api/me");

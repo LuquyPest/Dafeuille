@@ -11,6 +11,7 @@ import { state, fmt, toInput, parseAmount, parseNum, todayStr, fmtDay, monthLabe
 import { store, toast, handleWriteError } from "../data/store.js";
 import { removeWithUndo, warrantyEnd } from "../lib/domain.js";
 import { openAccount, openTransfer } from "../dialogs/Money.jsx";
+import { openBankLinks } from "../dialogs/Bank.jsx";
 
 const Del = ({ onClick }) => <button type="button" className="btn danger" onClick={onClick}>Supprimer</button>;
 const delThen = (onClose, list, item, msg) => async () => { onClose(); try { await removeWithUndo(list, item, msg); } catch (e) { handleWriteError(e); } };
@@ -41,6 +42,7 @@ function Accounts({ canEdit }){
   const vals = ks.map(k => accs.reduce((s, a) => { const h = (a.history || []).filter(x => String(x.date).slice(0, 7) <= k).sort((p, q) => String(q.date).localeCompare(String(p.date)))[0]; return s + (h ? h.balance : 0); }, 0));
   const max = Math.max(...vals.map(Math.abs), 1);
   return <section className="panel"><div className="phead"><h2>Comptes</h2>
+      <button className="btn sm ghost" disabled={!canEdit} onClick={openBankLinks}><Icon name="landmark" />Connexion bancaire</button>
       <button className="btn sm ghost" disabled={!canEdit} onClick={() => openTransfer(null)}>+ Virement</button><button className="btn sm" disabled={!canEdit} onClick={() => openAccount(null)}>+ Compte</button></div>
     <div>{accs.length ? <><ul className="items">{accs.map(a => { const bal = accountBalance(a), mv = accountMovements(a);
         return <li key={a.id}><span className="ic"><Icon name={accIcon(a.type)} /></span>

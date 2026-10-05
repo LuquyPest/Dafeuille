@@ -644,3 +644,7 @@ p.mt0{margin-top:0}.dblock{display:block}.srch-none{padding:10px 4px}
 .impnote{margin:4px 0 8px}.inp.p6{padding:6px}
 .lockh{margin:14px 0 0}.lockerr{margin:0 0 10px}.wrap-a{font:700 1.1rem var(--display)}
 .inp.mw90{max-width:90px}
+.bklist{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:12px;margin-top:8px}
+.bkrow{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--line)}
+.bkrow:last-child{border-bottom:0}
+.bklogo{width:22px;height:22px;object-fit:contain;flex:none}

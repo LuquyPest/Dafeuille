@@ -178,3 +178,25 @@ CREATE TABLE IF NOT EXISTS push_sent (
   key text PRIMARY KEY,
   at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Connexion bancaire automatique (open banking, GoCardless Bank Account Data) : un lien par compte
+-- bancaire relié. Les jetons eux-mêmes ne sont jamais stockés ici (voir asUser/gcToken côté serveur) :
+-- seul l'identifiant de la demande d'accès ("requisition") l'est, pour interroger GoCardless à la demande.
+CREATE TABLE IF NOT EXISTS bank_links (
+  id                 text PRIMARY KEY,
+  household_id       text NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  created_by         text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  institution_id     text NOT NULL,
+  institution_name   text NOT NULL,
+  requisition_id     text NOT NULL,
+  gc_account_id      text,                      -- identifiant du compte chez GoCardless, connu une fois le lien établi
+  member_id          text NOT NULL,              -- membre du foyer (DEFAULT_SETTINGS.members[].id) à qui attribuer les opérations
+  app_account_id     text,                       -- compte DAFeuille (coll. "comptes") sur lequel pointer les opérations importées
+  account_name       text,
+  status             text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','linked','error','revoked')),
+  error              text,
+  last_sync_at       timestamptz,
+  consent_expires_at timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bank_links_household_idx ON bank_links (household_id);
