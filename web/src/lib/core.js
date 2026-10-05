@@ -145,3 +145,4 @@ export const sumBy = (list, keyFn, valFn = eff) => { const o = {}; list.forEach(
 export const totalOf = (list, valFn = eff) => list.reduce((s, e) => s + valFn(e), 0);
 export const incTotal = list => list.reduce((s, e) => s + (e.amount || 0), 0);
 export const defDate = () => { const p = periodOf(state.month), t = todayStr(); return t >= p.from && t <= p.to ? t : p.from; };
+export const ACC_TYPES = [{id:"courant", label:"Compte courant"}, {id:"epargne", label:"Épargne (livret, PEL…)"}, {id:"placement", label:"Placement (assurance-vie, PEA…)"}, {id:"autre", label:"Autre"}];

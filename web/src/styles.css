@@ -607,3 +607,13 @@ img.av{object-fit:cover}
 /* ---- Interface React : classes remplaçant les anciens attributs style="" ---- */
 #acctChip .chev{width:16px;height:16px;color:var(--muted)}
 .pending-view{padding:28px;text-align:center}
+.mt6{margin-top:6px}.mt8{margin-top:8px}.mt10{margin-top:10px}.mb12{margin:0 0 12px}.my4{margin:4px 0}
+.jend{justify-content:flex-end}.jstart{justify-content:flex-start}.jcenter{justify-content:center}.tcenter{text-align:center}.wfull{width:100%}
+.bggood{background:var(--good)}
+.grid.kindgrid{grid-template-columns:1fr;gap:10px}
+.field.qacc{max-width:260px;margin:0 auto 10px}
+.field.qinc{max-width:320px;margin:0 auto}
+.m0{margin:0}.m0b{margin-bottom:0}.mb10{margin-bottom:10px}.nowrap{white-space:nowrap}
+.kpi.span-all{grid-column:1/-1}
+.potsub{margin:2px 0 10px}
+.cslot{display:contents}

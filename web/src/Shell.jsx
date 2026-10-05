@@ -2,9 +2,22 @@
 import { useEffect, useRef } from "react";
 import { Icon, Logo } from "./ui/icons.jsx";
 import { useStore, levelInfo } from "./lib/hooks.js";
-import { state, pref, bump, HIDE, setHide, todayStr, daysBetween, safeImg, MEMBER_COLORS } from "./lib/core.js";
-import { SV, toastState, toast, offq, handleWriteError } from "./data/store.js";
+import { state, pref, bump, HIDE, setHide, todayStr, daysBetween, safeImg, MEMBER_COLORS, setCurrency, keyOf, curKey } from "./lib/core.js";
+import { SV, toastState, toast, offq, handleWriteError, onLoaded, onChanged } from "./data/store.js";
 import { VIEWS } from "./views/index.js";
+import { DialogHost } from "./ui/Dialog.jsx";
+import { generateRecurring } from "./lib/domain.js";
+import { openKindChooser, openQuick } from "./dialogs/Money.jsx";
+
+/* Après chaque chargement : devise, mois de départ (début de mois personnalisé), dépenses fixes à générer */
+let curCurrency = "EUR";
+function applyCurrency(){ const c = state.settings.currency || "EUR"; if (c !== curCurrency) { curCurrency = c; setCurrency(c); } }
+onLoaded(() => {
+  applyCurrency();
+  if (!state._msInit) { state._msInit = true; if (state.month === keyOf(new Date())) state.month = curKey(); }
+  generateRecurring();
+});
+onChanged(() => { applyCurrency(); generateRecurring(); });
 
 export const TABS = [
   {id:"budget", label:"Budget", icon:"wallet"},
@@ -44,6 +57,7 @@ function Toast(){
   );
 }
 
+export const houseName = () => state.settings.houseName || (SV.hh && SV.hh.name) || "DAFeuille";
 export function statusText(){
   if (state.mode === "loading") return "Connexion…";
   const pend = offq.get().length;
@@ -68,11 +82,11 @@ export function Shell({ actions }){
     e.preventDefault(); const n = bs[(i + (e.key === "ArrowRight" ? 1 : -1) + bs.length) % bs.length]; n.focus(); n.click();
   };
   const View = VIEWS[state.tab];
-  const a = actions || {};
+  const a = {add:openKindChooser, quick:openQuick, ...(actions || {})};
   return (
     <div className="wrap">
       <header className="top">
-        <div className="brand"><Logo /><div><b>{SV.hh ? SV.hh.name : "DAFeuille"}</b><small>{statusText()}</small></div></div>
+        <div className="brand"><Logo /><div><b>{houseName()}</b><small>{statusText()}</small></div></div>
         <button className="btn ghost quickdesk" disabled={!canEdit} onClick={a.quick}><Icon name="zap" />Éclair</button>
         <button className="btn addbtn-desk" disabled={!canEdit} onClick={a.add}><Icon name="plus" />Transaction</button>
         <button className="iconbtn" title="Rechercher partout (/)" aria-label="Rechercher partout" onClick={a.search}><Icon name="search" /></button>
@@ -104,7 +118,7 @@ export function Shell({ actions }){
       </aside>
 
       <main id="main">
-        <h1 className="sr-only">{(cur ? cur.label + " — " : "") + (SV.hh ? SV.hh.name : "DAFeuille")}</h1>
+        <h1 className="sr-only">{(cur ? cur.label + " — " : "") + houseName()}</h1>
         <section id={"view-" + state.tab} role="tabpanel" aria-labelledby={"tab-" + state.tab} data-view={state.tab}>
           {View ? <View canEdit={canEdit} ready={ready} actions={a} /> : null}
         </section>
@@ -115,6 +129,7 @@ export function Shell({ actions }){
         <button className="fab2" aria-label="Saisie éclair" onClick={a.quick}><Icon name="zap" /></button>
       </>}
       <Toast />
+      <DialogHost />
     </div>
   );
 }
