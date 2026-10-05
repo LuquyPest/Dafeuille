@@ -115,8 +115,16 @@ crontab -e                                # tous les jours à 3 h :
 0 3 * * * cd /chemin/dafeuille-serveur && ./scripts/backup.sh >> backups/backup.log 2>&1
 ```
 
+Chiffrement : ajoutez `BACKUP_PASSPHRASE=une-phrase-longue-et-aleatoire` dans `.env` pour que chaque
+sauvegarde soit automatiquement chiffrée (AES-256 via `gpg`, le fichier en clair est supprimé après
+coup) — recommandé avant de copier les sauvegardes hors du VPS. Nécessite le paquet `gnupg`
+(`apt install gnupg` si `gpg` n'est pas déjà présent). Sans cette variable, les sauvegardes restent en
+clair comme avant.
+
 Restauration :
 ```bash
+# si chiffré :
+gpg -d --batch --passphrase "$BACKUP_PASSPHRASE" -o backups/FICHIER.dump backups/FICHIER.dump.gpg
 docker compose exec -T db pg_restore -U postgres -d potcommun --clean < backups/FICHIER.dump
 ```
 Copiez régulièrement le dossier `backups` hors du VPS.

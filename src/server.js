@@ -852,9 +852,11 @@ app.post("/api/h/:hid/groups/:gid/link/rotate", requireUser, member, h(async (re
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
   const exists = await asUser(req.user.id, c => c.query("SELECT 1 FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [req.params.hid, req.params.gid]));
   if (!exists.rows[0]) throw new HttpError(404, "not_found", "Groupe introuvable.");
-  await q("UPDATE group_links SET revoked_at = now() WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid]);
   const token = newToken();
-  await q("INSERT INTO group_links (id, token, household_id, group_id, created_by) VALUES ($1,$2,$3,$4,$5)", [uuid(), token, req.params.hid, req.params.gid, req.user.id]);
+  await asUser(req.user.id, async c => {
+    await c.query("UPDATE group_links SET revoked_at = now() WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid]);
+    await c.query("INSERT INTO group_links (id, token, household_id, group_id, created_by) VALUES ($1,$2,$3,$4,$5)", [uuid(), token, req.params.hid, req.params.gid, req.user.id]);
+  });
   res.json({ token, url: `${CFG.appUrl}/?groupe=${token}` });
 }));
 app.get("/api/h/:hid/groups/:gid/link", requireUser, member, h(async (req, res) => {
@@ -865,7 +867,7 @@ app.get("/api/h/:hid/groups/:gid/link", requireUser, member, h(async (req, res) 
 }));
 app.delete("/api/h/:hid/groups/:gid/link", requireUser, member, h(async (req, res) => {
   if (req.role === "viewer") throw new HttpError(403, "not_granted", "Vous avez un accès en lecture seule.");
-  await q("UPDATE group_links SET revoked_at = now() WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid]);
+  await asUser(req.user.id, c => c.query("UPDATE group_links SET revoked_at = now() WHERE household_id = $1 AND group_id = $2 AND revoked_at IS NULL", [req.params.hid, req.params.gid]));
   res.json({ ok: true });
 }));
 async function groupLink(token) {
@@ -874,9 +876,11 @@ async function groupLink(token) {
   return r;
 }
 const CLAIM_WINDOW_MS = 30 * 60e3;
-async function mintClaim(gl, type, subjectId) {
+// Insère via la connexion déjà ouverte par withGroupDoc (asUser(gl.created_by, ...)) : group_claims
+// est protégé par RLS et exige un utilisateur du foyer (propriétaire/contributeur) pour écrire.
+async function mintClaim(c, gl, type, subjectId) {
   const token = newToken();
-  await q("INSERT INTO group_claims (id, household_id, group_id, subject_type, subject_id, token_hash) VALUES ($1,$2,$3,$4,$5,$6)",
+  await c.query("INSERT INTO group_claims (id, household_id, group_id, subject_type, subject_id, token_hash) VALUES ($1,$2,$3,$4,$5,$6)",
     [uuid(), gl.household_id, gl.group_id, type, subjectId, sha(token)]);
   return token;
 }
@@ -951,8 +955,8 @@ app.post("/api/public/group/:token/item", h(async (req, res) => {
     g.items.push({ id: itemId, label, amount, cat, photo, currency, rate, origAmount, splits,
       payer: pid, parts: parts && parts.length ? parts : g.people.map(p => p.id), kind: "expense",
       date: new Date().toISOString().slice(0, 10), createdAt: Date.now() });
-    claimToken = await mintClaim(gl, "item", itemId);
-    if (newPerson) personClaimToken = await mintClaim(gl, "person", pid);
+    claimToken = await mintClaim(c, gl, "item", itemId);
+    if (newPerson) personClaimToken = await mintClaim(c, gl, "person", pid);
   });
   (async () => {
     const g = (await asUser(gl.created_by, c => c.query("SELECT data FROM docs WHERE household_id = $1 AND coll = 'groupes' AND id = $2", [gl.household_id, gl.group_id]))).rows[0];
@@ -1101,7 +1105,7 @@ async function syncBankLink(link) {
   for (let page = 0; page < 20; page++) {   // garde-fou : 20 pages de relevé suffisent largement pour un usage familial
     let tx;
     try { tx = await ebFetch(`/accounts/${encodeURIComponent(link.gc_account_id)}/transactions?date_from=${dateFrom}${key ? `&continuation_key=${encodeURIComponent(key)}` : ""}`); }
-    catch (e) { await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [link.id, e.message]); throw e; }
+    catch (e) { await asUser(link.created_by, c => c.query("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [link.id, e.message])); throw e; }
     for (const t of tx.transactions || []) {
       if (!t.transaction_amount || t.transaction_amount.currency !== "EUR") continue;   // conversion hors périmètre pour l'instant
       const cents = Math.round(parseFloat(t.transaction_amount.amount) * 100);
@@ -1120,7 +1124,7 @@ async function syncBankLink(link) {
     }
     key = tx.continuation_key; if (!key) break;
   }
-  await q("UPDATE bank_links SET last_sync_at = now(), status = 'linked', error = NULL WHERE id = $1", [link.id]);
+  await asUser(link.created_by, c => c.query("UPDATE bank_links SET last_sync_at = now(), status = 'linked', error = NULL WHERE id = $1", [link.id]));
   return n;
 }
 async function syncAllBankLinks() {
@@ -1156,8 +1160,8 @@ app.post("/api/h/:hid/bank/connect", requireUser, member, h(async (req, res) => 
     access: { valid_until: validUntil }, aspsp: { name: inst.name, country: inst.country }, state: id,
     redirect_url: `${CFG.appUrl}/api/h/${req.params.hid}/bank/callback`, psu_type: "personal",
   }) });
-  await q(`INSERT INTO bank_links (id, household_id, created_by, institution_id, institution_name, member_id, app_account_id, status)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,'pending')`, [id, req.params.hid, req.user.id, institutionId, inst.name, memberId, appAccountId]);
+  await asUser(req.user.id, c => c.query(`INSERT INTO bank_links (id, household_id, created_by, institution_id, institution_name, member_id, app_account_id, status)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,'pending')`, [id, req.params.hid, req.user.id, institutionId, inst.name, memberId, appAccountId]));
   res.json({ redirectUrl: auth.url });
 }));
 // Enable Banking redirige ici le navigateur après authentification bancaire : pas de session requise,
@@ -1169,15 +1173,15 @@ app.get("/api/h/:hid/bank/callback", h(async (req, res) => {
   try {
     const link = (await q("SELECT * FROM bank_links WHERE id = $1 AND household_id = $2", [linkId, req.params.hid])).rows[0];
     if (!link) return back(false, "Lien introuvable.");
-    if (!code) { await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [linkId, "Connexion annulée."]); return back(false, "La connexion à la banque a été annulée."); }
+    if (!code) { await asUser(link.created_by, c => c.query("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [linkId, "Connexion annulée."])); return back(false, "La connexion à la banque a été annulée."); }
     const session = await ebFetch("/sessions", { method: "POST", body: JSON.stringify({ code }) });
     if (!session.accounts || !session.accounts.length) {
-      await q("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [linkId, "Aucun compte accessible."]);
+      await asUser(link.created_by, c => c.query("UPDATE bank_links SET status = 'error', error = $2 WHERE id = $1", [linkId, "Aucun compte accessible."]));
       return back(false, "Aucun compte accessible n'a été trouvé pour cette banque.");
     }
     const account = session.accounts[0], accountName = account.name || account.product || link.institution_name;
-    await q("UPDATE bank_links SET status = 'linked', requisition_id = $2, gc_account_id = $3, account_name = $4, consent_expires_at = $5 WHERE id = $1",
-      [linkId, session.session_id, account.uid, accountName, session.access.valid_until]);
+    await asUser(link.created_by, c => c.query("UPDATE bank_links SET status = 'linked', requisition_id = $2, gc_account_id = $3, account_name = $4, consent_expires_at = $5 WHERE id = $1",
+      [linkId, session.session_id, account.uid, accountName, session.access.valid_until]));
     syncBankLink({ ...link, gc_account_id: account.uid }).catch(e => logJson("error", { msg: "syncBankLink", message: e.message }));
     back(true);
   } catch (e) { logJson("error", { msg: "bank callback", message: e.message }); back(false, "Une erreur est survenue."); }
@@ -1194,7 +1198,7 @@ app.delete("/api/h/:hid/bank/:linkId", requireUser, member, h(async (req, res) =
   const link = (await q("SELECT * FROM bank_links WHERE id = $1 AND household_id = $2", [req.params.linkId, req.params.hid])).rows[0];
   if (!link) throw new HttpError(404, "not_found", "Connexion introuvable.");
   if (link.requisition_id) await ebFetch(`/sessions/${encodeURIComponent(link.requisition_id)}`, { method: "DELETE" }).catch(() => {});
-  await q("DELETE FROM bank_links WHERE id = $1", [req.params.linkId]);
+  await asUser(req.user.id, c => c.query("DELETE FROM bank_links WHERE id = $1", [req.params.linkId]));
   res.json({ ok: true });
 }));
 

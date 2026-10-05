@@ -147,6 +147,29 @@ DROP POLICY IF EXISTS docs_delete ON docs;
 CREATE POLICY docs_delete ON docs FOR DELETE
   USING (pc_role(household_id) IN ('owner','contributor') AND (owner = '' OR owner = app_uid()));
 
+-- group_links / group_claims / bank_links : la lecture reste ouverte (SELECT USING true) car le jeton ou
+-- l'identifiant de lien, imprévisible, est déjà la protection d'accès (même modèle que les invitations et
+-- liens magiques) — et certains appels n'ont pas encore d'utilisateur connu au moment de lire la ligne
+-- (callback bancaire public, synchronisation périodique inter-foyers). L'écriture, elle, est bloquée par
+-- la base au cas où l'application oublierait un contrôle de rôle.
+ALTER TABLE group_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE group_links FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS group_links_select ON group_links;
+CREATE POLICY group_links_select ON group_links FOR SELECT USING (true);
+DROP POLICY IF EXISTS group_links_insert ON group_links;
+CREATE POLICY group_links_insert ON group_links FOR INSERT WITH CHECK (pc_role(household_id) IN ('owner','contributor'));
+DROP POLICY IF EXISTS group_links_update ON group_links;
+CREATE POLICY group_links_update ON group_links FOR UPDATE
+  USING      (pc_role(household_id) IN ('owner','contributor'))
+  WITH CHECK (pc_role(household_id) IN ('owner','contributor'));
+
+ALTER TABLE group_claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE group_claims FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS group_claims_select ON group_claims;
+CREATE POLICY group_claims_select ON group_claims FOR SELECT USING (true);
+DROP POLICY IF EXISTS group_claims_insert ON group_claims;
+CREATE POLICY group_claims_insert ON group_claims FOR INSERT WITH CHECK (pc_role(household_id) IN ('owner','contributor'));
+
 -- Historique des gains d'XP (graphique de progression, séries de jours actifs).
 CREATE TABLE IF NOT EXISTS xp_events (
   id      bigserial PRIMARY KEY,
@@ -202,3 +225,19 @@ CREATE TABLE IF NOT EXISTS bank_links (
 );
 CREATE INDEX IF NOT EXISTS bank_links_household_idx ON bank_links (household_id);
 ALTER TABLE bank_links ALTER COLUMN requisition_id DROP NOT NULL;
+
+-- RLS (même principe que group_links/group_claims ci-dessus) : lecture ouverte (le callback bancaire
+-- public et le job de synchronisation périodique inter-foyers lisent avant de connaître un utilisateur),
+-- écriture bloquée par la base au rôle propriétaire/contributeur du foyer concerné.
+ALTER TABLE bank_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bank_links FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS bank_links_select ON bank_links;
+CREATE POLICY bank_links_select ON bank_links FOR SELECT USING (true);
+DROP POLICY IF EXISTS bank_links_insert ON bank_links;
+CREATE POLICY bank_links_insert ON bank_links FOR INSERT WITH CHECK (pc_role(household_id) IN ('owner','contributor'));
+DROP POLICY IF EXISTS bank_links_update ON bank_links;
+CREATE POLICY bank_links_update ON bank_links FOR UPDATE
+  USING      (pc_role(household_id) IN ('owner','contributor'))
+  WITH CHECK (pc_role(household_id) IN ('owner','contributor'));
+DROP POLICY IF EXISTS bank_links_delete ON bank_links;
+CREATE POLICY bank_links_delete ON bank_links FOR DELETE USING (pc_role(household_id) IN ('owner','contributor'));
