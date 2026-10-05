@@ -27,7 +27,7 @@ const CFG = {
   publicDir: env.PUBLIC_DIR || path.join(__dirname, "..", "public"),
   uploadsDir: env.UPLOADS_DIR || path.join(__dirname, "..", "data", "uploads"),
   privateDir: env.PRIVATE_DIR || path.join(__dirname, "..", "data", "private"),
-  webDir: env.WEB_DIR || path.join(__dirname, "..", "public-v2"),
+  webDir: env.WEB_DIR || path.join(__dirname, "..", "web-dist"),
 };
 CFG.vapid = env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY ? { pub: env.VAPID_PUBLIC_KEY, priv: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || "mailto:admin@localhost" } : null;
 if (CFG.vapid) webpush.setVapidDetails(CFG.vapid.subject, CFG.vapid.pub, CFG.vapid.priv);
@@ -219,16 +219,16 @@ const app = express();
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(compression());
+/* CSP stricte : aucun script ni style inline, aucun script tiers ; seules les polices Google sont autorisées.
+   L'interface React est un bundle servi par ce serveur (les styles dynamiques passent par le CSSOM). */
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 app.use((req, res, next) => {
-  req.nonce = crypto.randomBytes(16).toString("base64");
   res.set({
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "same-origin",
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(self), geolocation=(), microphone=()",
-    // 'unsafe-inline' reste en repli pour les navigateurs qui ignorent les nonces : un navigateur qui
-    // comprend 'nonce-'/'strict-dynamic' les ignore automatiquement (CSP Level 2+), sans régression ailleurs.
-    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'nonce-${req.nonce}' 'strict-dynamic' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
+    "Content-Security-Policy": CSP,
   });
   if (CFG.secure) res.set("Strict-Transport-Security", "max-age=31536000");
   req.id = crypto.randomBytes(6).toString("base64url");
@@ -243,13 +243,6 @@ app.use("/api", (req, res, next) => {
 app.use("/api", h(loadSession));
 
 app.get("/api/health", h(async (req, res) => { await q("SELECT 1"); res.json({ ok: true }); }));
-
-/* Page principale : servie dynamiquement (pas par express.static) pour injecter un nonce CSP
-   différent à chaque requête sur les <script> inline — lu une seule fois, gardé en mémoire. */
-const INDEX_HTML = fs.readFileSync(path.join(CFG.publicDir, "index.html"), "utf8");
-app.get(["/", "/index.html"], (req, res) => {
-  res.set("Cache-Control", "no-cache").type("html").send(INDEX_HTML.replaceAll("__CSP_NONCE__", req.nonce));
-});
 
 /* ---------------------------- Authentification ---------------------------- */
 const GENERIC_SENT = { ok: true, message: "Si l'adresse est valide, un e-mail vient d'être envoyé." };
@@ -1054,12 +1047,12 @@ app.use(express.static(CFG.publicDir, {
   index: false,
   setHeaders: (res, p) => { if (/sw\.js$|manifest\.json$/.test(p)) res.set("Cache-Control", "no-cache"); else res.set("Cache-Control", "public, max-age=86400"); }
 }));
-// Nouvelle interface React (build Vite) sous /beta, avec une CSP stricte : aucun script ni style inline,
-// aucune ressource tierce hors polices (le bundle est entièrement servi par le serveur).
-const STRICT_CSP = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
-app.use("/beta", (req, res, next) => { res.set("Content-Security-Policy", STRICT_CSP); next(); },
-  express.static(CFG.webDir, { index: false, setHeaders: (res, p) => res.set("Cache-Control", /\/assets\//.test(p) ? "public, max-age=31536000, immutable" : "no-cache") }),
-  (req, res, next) => { if (req.method !== "GET") return next(); const f = path.join(CFG.webDir, "index.html"); fs.existsSync(f) ? res.set("Cache-Control", "no-cache").sendFile(f) : next(); });
+// Interface React (build Vite) : fichiers hachés mis en cache un an, le reste revalidé à chaque visite.
+app.use(express.static(CFG.webDir, { index: false, setHeaders: (res, p) => res.set("Cache-Control", /[\\/]assets[\\/]/.test(p) ? "public, max-age=31536000, immutable" : "no-cache") }));
+const WEB_INDEX = path.join(CFG.webDir, "index.html");
+app.get(["/", "/index.html"], (req, res, next) => fs.existsSync(WEB_INDEX) ? res.set("Cache-Control", "no-cache").sendFile(WEB_INDEX) : next());
+// Anciennes adresses de la préversion : on garde les paramètres (liens d'invitation, de groupe…)
+app.get(/^\/beta(\/.*)?$/, (req, res) => { const i = req.originalUrl.indexOf("?"); res.redirect(301, "/" + (i >= 0 ? req.originalUrl.slice(i) : "")); });
 // Avatars, bannières, photos de groupes : noms de fichiers générés (UUID), non énumérables ;
 // même niveau de confidentialité qu'aujourd'hui (data-URL renvoyée telle quelle dans les réponses API).
 app.use("/uploads", express.static(CFG.uploadsDir, { index: false, maxAge: "1y", immutable: true }));

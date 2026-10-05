@@ -64,7 +64,18 @@ Les « dépenses perso » restent visibles uniquement par leur auteur, même au 
   `scripts/db-init.sh`) ; le serveur refuse de démarrer s'il est branché sur un compte administrateur.
 - Mots de passe hachés avec scrypt ; jetons de session et liens e-mail stockés sous forme d'empreinte.
 - Cookies `HttpOnly`, `Secure`, `SameSite` ; protection anti-CSRF ; limitation des tentatives de connexion.
-- En-têtes de sécurité (CSP, HSTS…), HTTPS automatique.
+- En-têtes de sécurité (HSTS…), HTTPS automatique, et CSP stricte : aucun script ni style en ligne,
+  aucun script tiers (l'interface est un bundle servi par le serveur ; seules les polices viennent de Google Fonts).
+
+## Développement de l'interface
+
+L'interface est en React (dossier `web/`, construite par Vite dans `web-dist/` lors du `docker compose build`).
+
+```bash
+npm install
+npm run dev:web      # serveur de développement (l'API est relayée vers la production, voir web/vite.config.mjs)
+npm run build:web    # construit web-dist/
+```
 
 ## Sauvegardes
 

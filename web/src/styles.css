@@ -444,7 +444,8 @@ details.more[open] summary{margin-bottom:12px}
 .badge-it{background:var(--surface-2);border-radius:16px;padding:12px 8px;text-align:center;font-size:.78rem}
 .badge-it .tile{margin:0 auto 6px;width:40px;height:40px;border-radius:13px}
 .badge-it b{font-weight:600}
-.badge-it.off{opacity:.4;filter:grayscale(1)}
+.badge-it.off{filter:grayscale(1);color:var(--muted);background:transparent;box-shadow:inset 0 0 0 1.5px var(--line)}
+.badge-it.off .tile{opacity:.45}
 .badge-it .xp{display:block;color:var(--accent);font-weight:700;font-size:.68rem;margin-top:2px}
 .badge-it.off .xp{color:var(--muted)}
 
@@ -606,7 +607,6 @@ img.av{object-fit:cover}
 
 /* ---- Interface React : classes remplaçant les anciens attributs style="" ---- */
 #acctChip .chev{width:16px;height:16px;color:var(--muted)}
-.pending-view{padding:28px;text-align:center}
 .mt6{margin-top:6px}.mt8{margin-top:8px}.mt10{margin-top:10px}.mb12{margin:0 0 12px}.my4{margin:4px 0}
 .jend{justify-content:flex-end}.jstart{justify-content:flex-start}.jcenter{justify-content:center}.tcenter{text-align:center}.wfull{width:100%}
 .bggood{background:var(--good)}

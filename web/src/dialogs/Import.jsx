@@ -61,7 +61,7 @@ function ImportDialog({ onClose }){
       <div className="erow"><span className="cn">Payé par</span><select aria-label="Payé par" value={payer} onChange={e => setPayer(e.target.value)}>{members().map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
       <p className="muted small impnote">Seules les opérations postérieures au dernier pointage du compte modifient son solde (les plus anciennes y sont déjà comptées).</p>
       <div className="actions m0 mb10"><span className="muted small">{info || `${rows.length} opérations trouvées` + (nd ? ` · ${nd} déjà présente${s(nd)} décochée${s(nd)}` : "") + (nt ? ` · ${nt} virement${s(nt)} interne${s(nt)} décoché${s(nt)}` : "")}</span></div>
-      <div className="scroll"><table className="t"><thead><tr><th>Libellé</th><th>Date</th><th>Montant</th><th>Catégorie</th><th>Importer</th></tr></thead>
+      <div className="scroll" tabIndex={0} role="region" aria-label="Opérations du relevé"><table className="t"><thead><tr><th>Libellé</th><th>Date</th><th>Montant</th><th>Catégorie</th><th>Importer</th></tr></thead>
         <tbody>{rows.map((r, i) => <tr key={r.importId}><td>{r.label}{r.sure ? <> <span className="up small">déjà importé</span></> : r.dup ? <> <span className="up small">doublon probable</span></> : null}{r.tr && <> <span className="up small">virement interne ?</span></>}</td>
           <td>{fmtDay(r.date)}</td><td className={(r.inc ? "down " : "") + "nowrap"}>{r.inc ? "+" : "−"}{fmt(r.amount)}</td>
           <td>{r.inc ? <span className="muted small">Revenu</span> : <select className="inp p6" aria-label={`Catégorie de ${r.label}`} value={r.cat} onChange={e => upd(i, {cat:e.target.value})}>{allCats().map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}</td>

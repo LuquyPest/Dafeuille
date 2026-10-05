@@ -102,18 +102,18 @@ export function AccountSection(){
   const invite = async () => { setInvErr(""); try { await api("POST", `${hb()}/invites`, {email, role}); setEmail(""); toast("Invitation envoyée"); load(); } catch (e) { setInvErr(e.message); } };
   const removeMember = async m => {
     const self = m.id === SV.me.id; if (!confirm(self ? "Quitter ce foyer ?" : "Retirer l'accès de cette personne ?")) return;
-    try { await api("DELETE", `${hb()}/members/${encodeURIComponent(m.id)}`); if (self) { pref.del("pc.srv.hid"); location.href = "/beta/"; return; } toast("Accès retiré"); } catch (e) { toast(e.message); }
+    try { await api("DELETE", `${hb()}/members/${encodeURIComponent(m.id)}`); if (self) { pref.del("pc.srv.hid"); location.href = "/"; return; } toast("Accès retiré"); } catch (e) { toast(e.message); }
     load();
   };
   const setDigestOn = async on => { setDigest(on); try { await api("POST", "/api/me/digest", {on}); SV.me.weeklyDigest = on; toast(on ? "Résumé hebdomadaire activé" : "Résumé hebdomadaire désactivé"); } catch (e) { setDigest(!on); toast(e.message); } };
   const changePw = async () => { setPwErr(""); try { await api("POST", "/api/me/password", {current:pw0, password:pw1}); setPw0(""); setPw1(""); toast("Mot de passe modifié"); } catch (e) { setPwErr(e.message); } };
   const delAccount = async () => {
     if (!confirm("Supprimer définitivement votre compte ? Cette action est irréversible.")) return;
-    setDelErr(""); try { await api("DELETE", "/api/me", {password:delPw}); clearSnapshots(); location.href = "/beta/"; } catch (e) { setDelErr(e.message); }
+    setDelErr(""); try { await api("DELETE", "/api/me", {password:delPw}); clearSnapshots(); location.href = "/"; } catch (e) { setDelErr(e.message); }
   };
   return <div>
     <div className="field"><span className="lab">Foyer</span><div className="erow"><span className="cn"><b>{SV.hh.name}</b>&nbsp;<span className="muted small">· {(ROLE[SV.role] || "").toLowerCase()}</span></span>
-      <button type="button" className="btn sm ghost" onClick={() => { pref.del("pc.srv.hid"); location.href = "/beta/?choisir=1"; }}><Icon name="repeat" />Changer</button></div></div>
+      <button type="button" className="btn sm ghost" onClick={() => { pref.del("pc.srv.hid"); location.href = "/?choisir=1"; }}><Icon name="repeat" />Changer</button></div></div>
     <div className="field"><span className="lab">Accès au foyer</span>
       <div>{err ? <p className="err">{err}</p> : data && <>
         {data.members.map(m => <div className="acc-row" key={m.id}>

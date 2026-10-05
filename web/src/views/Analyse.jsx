@@ -106,7 +106,7 @@ function Year({ actions }){
     <div className="month"><button aria-label="Année précédente" onClick={() => setYear(-1)}>‹</button><span className="month-name">Bilan {y}</span><button aria-label="Année suivante" onClick={() => setYear(1)}>›</button></div>
     <div className="kpis"><div className="kpi"><span>Dépenses</span><b>{fmt(ye)}</b></div><div className="kpi"><span>Revenus</span><b>{fmt(yinc)}</b></div><div className="kpi"><span>Épargné</span><b>{fmt(ys)}</b></div></div>
     <h3>Par catégorie</h3>
-    <div className="scroll">{rows.length ? <table className="t"><thead><tr><th>Catégorie</th><th>Total</th><th>%</th><th>Moy./mois</th><th>Budget an.</th></tr></thead>
+    <div className="scroll" tabIndex={0} role="region" aria-label={`Dépenses ${y} par catégorie`}>{rows.length ? <table className="t"><thead><tr><th>Catégorie</th><th>Total</th><th>%</th><th>Moy./mois</th><th>Budget an.</th></tr></thead>
       <tbody>{rows.map(([id, v]) => <tr key={id}><td><CatIco c={catOf(id)} /> {catOf(id).name}</td><td>{fmt(v)}</td><td>{Math.round(v / ye * 100)} %</td><td>{fmt(v / months)}</td>
         <td className={cb[id] && v > cb[id] * 12 ? "over" : ""}>{cb[id] ? fmt(cb[id] * 12) : "—"}</td></tr>)}</tbody>
       <tfoot><tr><td>Total</td><td>{fmt(ye)}</td><td></td><td>{fmt(ye / months)}</td><td>{state.settings.budget ? fmt(state.settings.budget * 12) : "—"}</td></tr></tfoot></table>
@@ -128,7 +128,7 @@ function YoY(){
     const ids = Array.from(new Set([...Object.keys(ca), ...Object.keys(cbb)])).sort((p, q) => Math.abs((ca[q] || 0) - (cbb[q] || 0)) - Math.abs((ca[p] || 0) - (cbb[p] || 0))).slice(0, 8);
     const delta = (x, z) => z ? <span className={x > z ? "up" : "down"}>{x >= z ? "+" : "−"}{Math.abs(Math.round((x - z) / z * 100))} %</span> : "—";
     body = <><div className="kpis"><div className="kpi"><span>{monthLabel(k)}</span><b>{fmt(ta)}</b></div><div className="kpi"><span>{monthLabel(k0)}</span><b>{fmt(tb)}</b></div><div className="kpi"><span>Écart</span><b>{delta(ta, tb)}</b></div></div>
-      <div className="scroll"><table className="t"><thead><tr><th>Catégorie</th><th>{y - 1}</th><th>{y}</th><th>Écart</th></tr></thead>
+      <div className="scroll" tabIndex={0} role="region" aria-label="Comparaison par catégorie"><table className="t"><thead><tr><th>Catégorie</th><th>{y - 1}</th><th>{y}</th><th>Écart</th></tr></thead>
         <tbody>{ids.map(id => <tr key={id}><td><CatIco c={catOf(id)} /> {catOf(id).name}</td><td>{fmt(cbb[id] || 0)}</td><td>{fmt(ca[id] || 0)}</td><td>{delta(ca[id] || 0, cbb[id] || 0)}</td></tr>)}</tbody></table></div>
       <p className="small mt10 m0b">Depuis janvier : <strong>{fmt(ya)}</strong> en {y}, contre {fmt(yb)} à la même période de {y - 1} ({delta(ya, yb)}).</p></>;
   }

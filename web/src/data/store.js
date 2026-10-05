@@ -21,7 +21,7 @@ export async function api(method, url, body){
 export const toastState = {msg:"", act:null, actLabel:"", n:0};
 let toastTimer = null;
 export function toast(msg, actLabel, actFn){
-  if (navigator.vibrate && pref.get("pc.haptic", "1") === "1") try { navigator.vibrate(8); } catch {}
+  if (navigator.vibrate && navigator.userActivation?.hasBeenActive && pref.get("pc.haptic", "1") === "1") try { navigator.vibrate(8); } catch {}
   Object.assign(toastState, {msg, actLabel:actLabel || "", act:actFn || null, n:toastState.n + 1});
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastState.msg = ""; toastState.act = null; bump(); }, actFn ? 6000 : 3000);
   bump();
@@ -219,4 +219,4 @@ function connect(hid){
   };
 }
 export async function refreshMe(){ const r = await api("GET", "/api/me"); SV.me = r.user; SV.households = r.households; bump(); return r; }
-export async function logout(){ await api("POST", "/api/auth/logout").catch(() => {}); clearSnapshots(); pref.del("pc.srv.hid"); location.href = "/beta/"; }
+export async function logout(){ await api("POST", "/api/auth/logout").catch(() => {}); clearSnapshots(); pref.del("pc.srv.hid"); location.href = "/"; }
