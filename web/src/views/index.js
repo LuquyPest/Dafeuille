@@ -1,6 +1,7 @@
 /* Registre des vues par onglet ; chaque phase de la migration remplace un Pending par la vraie vue. */
 import { createElement as h } from "react";
 import Budget from "./Budget.jsx";
+import Analyse from "./Analyse.jsx";
 
 const Pending = label => () => h("section", {className:"panel pending-view"},
   h("h2", null, label),
@@ -8,7 +9,7 @@ const Pending = label => () => h("section", {className:"panel pending-view"},
 
 export const VIEWS = {
   budget: Budget,
-  analyse: Pending("Analyse"),
+  analyse: Analyse,
   courses: Pending("Courses"),
   projets: Pending("Projets"),
   agenda: Pending("Agenda"),
