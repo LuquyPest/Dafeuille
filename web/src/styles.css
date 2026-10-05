@@ -632,3 +632,4 @@ img.av{object-fit:cover}
 .mt14{margin-top:14px}h3.mt0{margin-top:0}h3.calh{margin-top:0;text-transform:capitalize}
 .dots i.dot-evt{background:#A35FB8}.dots i.dot-fix{background:var(--accent)}.dots i.dot-inc{background:var(--good)}
 .c-warn{color:var(--warn)}.c-acc{color:var(--accent)}.c-good{color:var(--good)}.c-evt{color:#A35FB8}
+.cols.h100{height:100px}.cols.h130{height:130px}.cols.h90{height:90px}.op6{opacity:.6}.debtfoot{margin:6px 0 0}
