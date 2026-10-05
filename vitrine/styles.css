@@ -41,8 +41,10 @@ a{color:inherit}
 .cta-row.center{justify-content:center}
 
 /* ---------- Nav ---------- */
-.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.navbar{display:flex;align-items:center;gap:32px;height:68px}
+.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid transparent;transition:border-color .3s ease, box-shadow .3s ease}
+.nav.scrolled{border-color:var(--line);box-shadow:0 1px 0 rgba(0,0,0,.02), 0 12px 30px -16px rgba(15,23,42,.18)}
+.navbar{display:flex;align-items:center;gap:32px;height:68px;transition:height .3s ease}
+.nav.scrolled .navbar{height:58px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.05rem;text-decoration:none;color:var(--ink)}
 .brand img{border-radius:8px}
 .navlinks{display:flex;gap:28px;margin-right:auto;margin-left:40px}
@@ -83,7 +85,8 @@ section{padding:88px 0}
 
 /* ---------- Bento ---------- */
 .bento{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:minmax(200px,auto);gap:20px}
-.bcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:28px;box-shadow:var(--sh)}
+.bcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:28px;box-shadow:var(--sh);transition:transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s ease, border-color .35s ease}
+.bcard:hover{transform:translateY(-6px);box-shadow:var(--sh-lg);border-color:color-mix(in srgb, var(--accent) 35%, var(--line))}
 .bcard h3{font-size:1.1rem;margin-bottom:8px}
 .bcard p{color:var(--muted);font-size:.95rem;line-height:1.5}
 .bcard-lg{grid-column:span 2;grid-row:span 2;display:flex;flex-direction:column;justify-content:space-between;gap:20px}
@@ -153,7 +156,60 @@ section{padding:88px 0}
 /* ---------- Révélation au défilement ---------- */
 .reveal{opacity:0;transform:translateY(18px);transition:opacity .6s ease, transform .6s ease}
 .reveal.in{opacity:1;transform:none}
+
+/* ---------- Barre de progression de défilement ---------- */
+.scroll-progress{position:fixed;top:0;left:0;right:0;height:3px;z-index:30;background:transparent}
+.scroll-progress span{display:block;height:100%;width:0%;background:linear-gradient(90deg, var(--accent), var(--accent-2));transform-origin:left;box-shadow:0 0 12px var(--accent)}
+
+/* ---------- Lueur d'ambiance (hero, CTA finale) ---------- */
+.hero{position:relative;overflow:hidden}
+.hero-glow{position:absolute;inset:-20% -10% auto -10%;height:640px;z-index:0;pointer-events:none;
+  background:radial-gradient(540px 360px at var(--gx,20%) var(--gy,20%), var(--accent-soft), transparent 70%);
+  filter:blur(10px)}
+.hero-grid,.marquee{position:relative;z-index:1}
+.final-cta{position:relative;overflow:hidden}
+.final-glow{position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(640px 320px at 50% 100%, var(--accent-soft), transparent 70%)}
+.final-cta .wrap{position:relative;z-index:1}
+
+/* ---------- Titre du hero : lignes révélées en cascade ---------- */
+.split-lines{font-size:3.4rem;line-height:1.05}
+.split-lines .line{display:block}
+.hero-fade{opacity:0;transform:translateY(16px)}
+/* état initial posé en CSS pour ne rien afficher avant l'exécution du script (évite un flash) ;
+   script.js reprend la main dès qu'il charge, et showAllStatic() l'annule sinon. */
+.js .split-lines .line{opacity:0;transform:translateY(40px)}
+@media (max-width:980px){.split-lines{font-size:2.5rem}}
+
+/* ---------- Boutons magnétiques ---------- */
+.btn.mag{position:relative;will-change:transform}
+
+/* ---------- Cartes à bascule 3D (tilt) ---------- */
+.tilt-card{transform-style:preserve-3d;will-change:transform;transition:transform .4s cubic-bezier(.2,.8,.2,1)}
+.tilt-card img,.tilt-card pre{transform:translateZ(0)}
+
+/* ---------- Icônes : entrée + pulsation douce au survol ---------- */
+.icon-tile{transition:transform .3s cubic-bezier(.34,1.56,.64,1), background .3s ease}
+.bcard:hover .icon-tile,.fact:hover .icon-tile{transform:scale(1.1) rotate(-6deg)}
+
+/* ---------- Bandeau défilant (catégories) ---------- */
+.marquee{overflow:hidden;padding:22px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface);mask-image:linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent)}
+.marquee-track{display:flex;align-items:center;width:max-content;gap:14px;animation:marquee 26s linear infinite}
+.marquee-track span{font-size:.95rem;font-weight:600;color:var(--muted);white-space:nowrap}
+.marquee-track .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}
+.marquee:hover .marquee-track{animation-play-state:paused}
+@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ---------- Terminal : effet machine à écrire ---------- */
+.typewriter::after{content:"";display:inline-block;width:8px;height:1.1em;background:#D7FFF6;vertical-align:text-bottom;margin-left:2px;animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
-  .reveal{opacity:1;transform:none;transition:none}
+  .reveal,.hero-fade{opacity:1;transform:none;transition:none}
+  .split-lines .line span{transform:none}
+  .tilt-card{transform:none !important;transition:none}
+  .marquee-track{animation:none}
+  .scroll-progress{display:none}
+  .icon-tile,.bcard:hover .icon-tile,.fact:hover .icon-tile{transition:none;transform:none}
 }

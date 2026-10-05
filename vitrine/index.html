@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="fr">
 <head>
+<script>document.documentElement.classList.add("js")</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DAFeuille, le budget familial que vous hébergez vous-même</title>
@@ -14,6 +15,7 @@
 <body>
 
 <a class="skip" href="#principal">Aller au contenu</a>
+<div class="scroll-progress" aria-hidden="true"><span id="scrollBar"></span></div>
 
 <header class="nav">
   <div class="wrap navbar">
@@ -24,8 +26,7 @@
       <a href="#heberger">Auto-hébergement</a>
     </nav>
     <div class="navactions">
-      <a class="btn ghost" href="https://dafeuille.daryu.xyz/">Se connecter</a>
-      <a class="btn primary" href="https://dafeuille.daryu.xyz/">Créer un compte</a>
+      <a class="btn primary mag" href="https://github.com/LuquyPest/Dafeuille">Code source</a>
     </div>
   </div>
 </header>
@@ -33,23 +34,34 @@
 <main id="principal">
 
   <section class="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
     <div class="wrap hero-grid">
-      <div class="hero-text reveal">
-        <h1>Toute la famille,<br>un seul budget.</h1>
-        <p class="lead">Dépenses, factures et épargne réunis, synchronisés avec vos comptes bancaires. Vos données restent sur votre serveur.</p>
-        <div class="cta-row">
-          <a class="btn primary lg" href="https://dafeuille.daryu.xyz/">Créer un compte</a>
-          <a class="btn ghost lg" href="https://github.com/LuquyPest/Dafeuille">Voir le code source</a>
+      <div class="hero-text">
+        <h1 class="split-lines">
+          <span class="line">Toute la famille,</span>
+          <span class="line">un seul budget.</span>
+        </h1>
+        <p class="lead hero-fade">Dépenses, factures et épargne réunis, synchronisés avec vos comptes bancaires. Vos données restent sur votre serveur.</p>
+        <div class="cta-row hero-fade">
+          <a class="btn primary lg mag" href="https://github.com/LuquyPest/Dafeuille">Voir le code source</a>
+          <a class="btn ghost lg mag" href="https://github.com/LuquyPest/Dafeuille/blob/master/LISEZMOI.md">Guide d'installation</a>
         </div>
       </div>
-      <div class="hero-visual reveal">
-        <div class="browser-frame">
+      <div class="hero-visual">
+        <div class="browser-frame tilt-card">
           <div class="browser-bar"><span></span><span></span><span></span></div>
           <img src="images/app-desktop.png" alt="Tableau de bord DAFeuille : budget du mois, soldes et dernières dépenses du foyer" loading="eager">
         </div>
       </div>
     </div>
   </section>
+
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span>Courses</span><span class="dot"></span><span>Logement</span><span class="dot"></span><span>Transport</span><span class="dot"></span><span>Loisirs</span><span class="dot"></span><span>Abonnements</span><span class="dot"></span><span>Santé</span><span class="dot"></span><span>Épargne</span><span class="dot"></span><span>Factures</span><span class="dot"></span><span>Dettes</span><span class="dot"></span>
+      <span>Courses</span><span class="dot"></span><span>Logement</span><span class="dot"></span><span>Transport</span><span class="dot"></span><span>Loisirs</span><span class="dot"></span><span>Abonnements</span><span class="dot"></span><span>Santé</span><span class="dot"></span><span>Épargne</span><span class="dot"></span><span>Factures</span><span class="dot"></span><span>Dettes</span><span class="dot"></span>
+    </div>
+  </div>
 
   <section id="fonctionnalites" class="bento-section">
     <div class="wrap">
@@ -92,7 +104,7 @@
   <section class="split-section alt">
     <div class="wrap split-grid">
       <div class="split-visual reveal">
-        <div class="phone-frame">
+        <div class="phone-frame tilt-card">
           <img src="images/app-mobile.png" alt="DAFeuille sur téléphone : budget du mois et répartition par catégorie" loading="lazy">
         </div>
       </div>
@@ -142,29 +154,30 @@
         <h2>Installé chez vous,<br>pas chez un tiers.</h2>
         <p class="lead">Un VPS, Docker, et c'est parti. Le code est ouvert : inspectez-le, modifiez-le, hébergez-le sur votre propre domaine.</p>
         <div class="cta-row">
-          <a class="btn primary" href="https://github.com/LuquyPest/Dafeuille/blob/master/LISEZMOI.md">Voir le guide d'installation</a>
-          <a class="btn ghost" href="https://github.com/LuquyPest/Dafeuille">Code source</a>
+          <a class="btn primary mag" href="https://github.com/LuquyPest/Dafeuille/blob/master/LISEZMOI.md">Voir le guide d'installation</a>
+          <a class="btn ghost mag" href="https://github.com/LuquyPest/Dafeuille">Code source</a>
         </div>
       </div>
       <div class="host-code reveal">
-        <div class="code-frame">
+        <div class="code-frame tilt-card">
           <div class="browser-bar"><span></span><span></span><span></span></div>
-          <pre><code>cp .env.example .env
+          <pre><code class="typewriter" data-text="cp .env.example .env
 nano .env
 
 docker compose up -d --build
-docker compose logs -f app</code></pre>
+docker compose logs -f app"></code></pre>
         </div>
       </div>
     </div>
   </section>
 
   <section class="final-cta">
+    <div class="final-glow" aria-hidden="true"></div>
     <div class="wrap reveal">
       <h2>Prêt à reprendre la main sur votre budget ?</h2>
       <div class="cta-row center">
-        <a class="btn primary lg" href="https://dafeuille.daryu.xyz/">Créer un compte</a>
-        <a class="btn ghost lg" href="https://github.com/LuquyPest/Dafeuille">Voir le code source</a>
+        <a class="btn primary lg mag" href="https://github.com/LuquyPest/Dafeuille/blob/master/LISEZMOI.md">Guide d'installation</a>
+        <a class="btn ghost lg mag" href="https://github.com/LuquyPest/Dafeuille">Code source</a>
       </div>
     </div>
   </section>
@@ -184,6 +197,8 @@ docker compose logs -f app</code></pre>
   </div>
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
